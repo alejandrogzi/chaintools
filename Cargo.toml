@@ -1,27 +1,24 @@
 [package]
 name = "chaintools"
-version = "0.1.0"
+version = "0.0.2"
+edition = "2024"
 authors = ["alejandrogzi <alejandrxgzi@gmail.com>"]
-edition = "2021"
 license = "MIT"
-description = "Serialize and work with .chain files in Rust"
+description = "Work with .chain files in Rust"
 homepage = "https://github.com/alejandrogzi/chaintools"
 repository = "https://github.com/alejandrogzi/chaintools"
 readme = "README.md"
 keywords = ["chain", "lib", "genomic", "tool"]
 
-[dependencies]
-rayon = { version = "1.10", optional = true }
-fxhash = { version = "0.2", optional = true }
-memchr = { version = "2.7", optional = true }
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-bincode = "1.3"
-flate2 = "1.0"
-
-[profile.release]
-lto = true
-
 [features]
-default = ["read"]
-read = ["rayon", "fxhash", "memchr"]
+default = ["mmap"]
+mmap = ["memmap2"]
+gzip = ["flate2"]
+parallel = ["rayon"]
+index = []
+
+[dependencies]
+flate2 = { version = "1", optional = true }
+memchr = "2"
+memmap2 = { version = "0.9", optional = true }
+rayon = { version = "1", optional = true }
