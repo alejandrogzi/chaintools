@@ -31,7 +31,8 @@
     <samp>
         <a href="https://docs.rs/chaintools/0.0.2/chaintools/">docs</a> .
         <a href="https://github.com/alejandrogzi/chaintools?tab=readme-ov-file#Usage">usage</a> .
-        <a href="https://github.com/alejandrogzi/chaintools?tab=readme-ov-file#Features">features</a> 
+        <a href="https://github.com/alejandrogzi/chaintools?tab=readme-ov-file#Features">features</a> .
+        <a href="https://github.com/alejandrogzi/chaintools?tab=readme-ov-file#Format">chains</a> 
     </samp>
   </p>
 
@@ -55,16 +56,11 @@ chaintools = { version = "0.0.2", features = ["mmap", "gzip"] }
 
 - **Zero-copy parsing**: All string data is referenced without allocation for maximum performance
 - **Memory mapping**: Optional `mmap` support for efficient handling of large files  
-- **Parallel processing**: Multi-threaded parsing with the `parallel` feature
+- **Parallel processing**: Multi-threaded parsing with the `rayon` feature
 - **Streaming**: Low-memory streaming parser suitable for stdin and pipes
 - **Indexing**: Random access to individual chains with the `index` feature
 - **Compression**: Built-in gzip support with the `gzip` feature
 - **Feature-gated dependencies**: Minimal footprint by enabling only needed features
-
-- `mmap` (default): Memory mapping for efficient file access
-- `gzip`: Gzip decompression support
-- `parallel`: Multi-threaded parsing using Rayon
-- `index`: Random access indexing functionality
 
 ## Usage
 
@@ -138,7 +134,7 @@ println!("Index contains {} chains", index.len());
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-## Chain File Format
+## Format
 
 Chain files use the following format:
 
