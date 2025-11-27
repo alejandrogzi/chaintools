@@ -1,20 +1,46 @@
-# chaintools
+<p align="center">
+  <p align="center">
+    <img width=200 align="center" src="./assets/logo.png" >
+  </p>
 
-A fast, zero-copy Rust library for parsing UCSC chain alignment files with optional memory mapping, parallel processing, and streaming capabilities.
+  <h1 align="center">
+    chaintools
+  </h1>
+
+  <p align="center">
+    <a href="https://img.shields.io/badge/version-0.0.2-green" target="_blank">
+      <img alt="Version Badge" src="https://img.shields.io/badge/version-0.1.0dev-green">
+    </a>
+    <a href="https://crates.io/crates/chaintools" target="_blank">
+      <img alt="Crates.io Version" src="https://img.shields.io/crates/v/chaintools">
+    </a>
+    <a href="https://github.com/alejandrogzi/chaintools" target="_blank">
+      <img alt="GitHub License" src="https://img.shields.io/github/license/alejandrogzi/chaintools?color=blue">
+    </a>
+    <a href="https://crates.io/crates/chaintools" target="_blank">
+      <img alt="Crates.io Total Downloads" src="https://img.shields.io/crates/d/chaintools">
+    </a>
+  </p>
+
+
+  <p align="center">
+  work with .chain files in Rust
+  </p>
+
+  <p align="center">
+    <samp>
+        <a href="https://docs.rs/chaintools/0.0.2/chaintools/">docs</a> .
+        <a href="https://github.com/alejandrogzi/chaintools?tab=readme-ov-file#Usage">usage</a> .
+        <a href="https://github.com/alejandrogzi/chaintools?tab=readme-ov-file#Features">features</a> 
+    </samp>
+  </p>
+
+</p>
+
 
 ## Overview
 
-ChainTools is a high-performance library designed for parsing chain files, which describe pairwise alignments between sequences commonly used in genomics. The library provides zero-copy parsing to minimize memory allocations and maximize performance when working with large alignment datasets.
-
-## Features
-
-- **Zero-copy parsing**: All string data is referenced without allocation for maximum performance
-- **Memory mapping**: Optional `mmap` support for efficient handling of large files  
-- **Parallel processing**: Multi-threaded parsing with the `parallel` feature
-- **Streaming**: Low-memory streaming parser suitable for stdin and pipes
-- **Indexing**: Random access to individual chains with the `index` feature
-- **Compression**: Built-in gzip support with the `gzip` feature
-- **Feature-gated dependencies**: Minimal footprint by enabling only needed features
+'chaintools' is a high-performance library designed for parsing chain files, which describe pairwise alignments between sequences commonly used in genomics. The library provides zero-copy parsing to minimize memory allocations and maximize performance when working with large alignment datasets.
 
 ## Installation
 
@@ -25,14 +51,22 @@ Add this to your `Cargo.toml`:
 chaintools = { version = "0.0.2", features = ["mmap", "gzip"] }
 ```
 
-### Feature Flags
+### Features
+
+- **Zero-copy parsing**: All string data is referenced without allocation for maximum performance
+- **Memory mapping**: Optional `mmap` support for efficient handling of large files  
+- **Parallel processing**: Multi-threaded parsing with the `parallel` feature
+- **Streaming**: Low-memory streaming parser suitable for stdin and pipes
+- **Indexing**: Random access to individual chains with the `index` feature
+- **Compression**: Built-in gzip support with the `gzip` feature
+- **Feature-gated dependencies**: Minimal footprint by enabling only needed features
 
 - `mmap` (default): Memory mapping for efficient file access
 - `gzip`: Gzip decompression support
 - `parallel`: Multi-threaded parsing using Rayon
 - `index`: Random access indexing functionality
 
-## Quick Start
+## Usage
 
 ### Basic File Reading
 
