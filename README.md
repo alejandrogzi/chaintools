@@ -9,7 +9,7 @@
 
   <p align="center">
     <a href="https://img.shields.io/badge/version-0.0.2-green" target="_blank">
-      <img alt="Version Badge" src="https://img.shields.io/badge/version-0.1.0dev-green">
+      <img alt="Version Badge" src="https://img.shields.io/badge/version-0.0.2-green">
     </a>
     <a href="https://crates.io/crates/chaintools" target="_blank">
       <img alt="Crates.io Version" src="https://img.shields.io/crates/v/chaintools">
