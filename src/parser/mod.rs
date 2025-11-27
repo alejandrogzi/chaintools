@@ -1,5 +1,5 @@
 pub(crate) mod common;
-mod sequential;
+pub(crate) mod sequential;
 
 #[cfg(feature = "parallel")]
 mod parallel;

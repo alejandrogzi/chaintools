@@ -10,7 +10,9 @@ use crate::block::{Block, BlockSlice};
 use crate::chain::Chain;
 use crate::error::ChainError;
 use crate::parser::parse_chains_sequential;
-use crate::storage::{ByteSlice, SharedBytes, gzip_feature_error, is_gz_path};
+#[cfg(not(feature = "gzip"))]
+use crate::storage::gzip_feature_error;
+use crate::storage::{is_gz_path, ByteSlice, SharedBytes};
 
 #[cfg(feature = "parallel")]
 use crate::parser::parse_chains_parallel;
@@ -273,7 +275,7 @@ impl Reader<Chain> {
             #[cfg(feature = "parallel")]
             ParseStrategy::Parallel => parse_chains_parallel(buf)?,
         };
-        let blocks_arc = Arc::new(blocks);
+        let blocks_arc: Arc<Vec<Block>> = Arc::new(blocks);
         let chains = metas
             .into_iter()
             .map(|meta| Chain {

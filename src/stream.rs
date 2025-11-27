@@ -8,7 +8,9 @@ use crate::block::Block;
 use crate::chain::Strand;
 use crate::error::ChainError;
 use crate::parser::common::{is_blank, parse_block, parse_header};
-use crate::storage::{gzip_feature_error, is_gz_path};
+#[cfg(not(feature = "gzip"))]
+use crate::storage::gzip_feature_error;
+use crate::storage::is_gz_path;
 
 /// Owned representation for streaming mode.
 #[derive(Debug, Clone)]
@@ -197,7 +199,7 @@ impl<R: BufRead> StreamingReader<R> {
     }
 }
 
-impl StreamingReader<BufReader<std::fs::File>> {
+impl StreamingReader<Box<dyn BufRead>> {
     /// Convenience to open a path for streaming (will decompress gzip if enabled).
     ///
     /// Opens the file at the given path and creates a buffered streaming reader.
@@ -236,7 +238,9 @@ impl StreamingReader<BufReader<std::fs::File>> {
             {
                 let file = std::fs::File::open(path)?;
                 let decoder = MultiGzDecoder::new(file);
-                return Ok(StreamingReader::new(BufReader::new(decoder)));
+                return Ok(StreamingReader::new(Box::new(BufReader::new(
+                    decoder,
+                ))));
             }
             #[cfg(not(feature = "gzip"))]
             {
@@ -245,7 +249,7 @@ impl StreamingReader<BufReader<std::fs::File>> {
         }
 
         let file = std::fs::File::open(path)?;
-        Ok(StreamingReader::new(BufReader::new(file)))
+        Ok(StreamingReader::new(Box::new(BufReader::new(file))))
     }
 }
 

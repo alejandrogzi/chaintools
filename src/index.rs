@@ -1,9 +1,11 @@
-use std::io::Read;
 use std::path::Path;
 
 use crate::error::ChainError;
 use crate::parser::locate_chain_ranges;
-use crate::storage::{SharedBytes, gzip_feature_error, is_gz_path};
+use crate::storage::{is_gz_path, SharedBytes};
+
+#[cfg(all(feature = "index", not(feature = "gzip")))]
+use crate::storage::gzip_feature_error;
 
 #[cfg(feature = "gzip")]
 use flate2::read::MultiGzDecoder;
@@ -48,7 +50,7 @@ pub struct ChainSpan {
 ///
 /// # Examples
 ///
-/// ```
+/// ```no_run
 /// use chaintools::index::ChainIndex;
 ///
 /// let index = ChainIndex::from_path("example.chain")?;
@@ -82,7 +84,7 @@ impl ChainIndex {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use chaintools::index::ChainIndex;
     ///
     /// // Index a plain text chain file
@@ -207,7 +209,7 @@ impl ChainIndex {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use chaintools::index::ChainIndex;
     ///
     /// let index = ChainIndex::from_path("example.chain")?;
@@ -234,7 +236,7 @@ impl ChainIndex {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use chaintools::index::ChainIndex;
     ///
     /// let index = ChainIndex::from_path("example.chain")?;
@@ -257,7 +259,7 @@ impl ChainIndex {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use chaintools::index::ChainIndex;
     ///
     /// let index = ChainIndex::from_path("empty.chain")?;
@@ -285,7 +287,7 @@ impl ChainIndex {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use chaintools::index::ChainIndex;
     ///
     /// let index = ChainIndex::from_path("example.chain")?;

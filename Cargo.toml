@@ -22,3 +22,8 @@ flate2 = { version = "1", optional = true }
 memchr = "2"
 memmap2 = { version = "0.9", optional = true }
 rayon = { version = "1", optional = true }
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1

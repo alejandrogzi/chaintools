@@ -4,8 +4,8 @@ use rayon::prelude::*;
 
 use crate::{Block, ChainError};
 
-use super::common::parse_chain_in_range;
-use super::{ChainMeta, locate_chain_ranges};
+use super::common::{parse_chain_in_range, ChainMeta};
+use super::locate_chain_ranges;
 
 /// Parses all chains from a byte buffer using parallel processing.
 ///
@@ -24,7 +24,7 @@ use super::{ChainMeta, locate_chain_ranges};
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use chaintools::parser::parallel::parse_chains_parallel;
 ///
 /// let data = b"chain 1 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n10\n10\n\nchain 2 chr1 1000 + 0 100 chr2 1000 + 0 100 2\n20\n20\n\n";

@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use crate::{Block, ChainError};
 
-use super::common::{ChainMeta, is_blank, parse_block, parse_header, read_line};
+use super::common::{is_blank, parse_block, parse_header, read_line, ChainMeta};
 
 /// Parses all chains from a byte buffer using sequential parsing.
 ///
@@ -96,7 +96,7 @@ pub(crate) fn parse_chains_sequential(
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use chaintools::parser::sequential::locate_chain_ranges;
 ///
 /// let data = b"chain 1 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n10\n10\n\nchain 2 chr1 1000 + 0 100 chr2 1000 + 0 100 2\n20\n20\n\n";

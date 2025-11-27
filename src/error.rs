@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt};
 
 /// Error types for chain parsing and processing.
 ///
@@ -63,5 +63,26 @@ impl From<std::io::Error> for ChainError {
     /// ```
     fn from(value: std::io::Error) -> Self {
         ChainError::Io(value)
+    }
+}
+
+impl fmt::Display for ChainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ChainError::Io(err) => write!(f, "I/O error: {}", err),
+            ChainError::Format { offset, msg } => {
+                write!(f, "format error at byte {}: {}", offset, msg)
+            }
+            ChainError::Unsupported { msg } => write!(f, "unsupported: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for ChainError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ChainError::Io(err) => Some(err),
+            _ => None,
+        }
     }
 }
