@@ -3,9 +3,11 @@
     <img width=200 align="center" src="./assets/logo.png" >
   </p>
 
-  <h1 align="center">
-    chaintools
-  </h1>
+  <span>
+    <h1 align="center">
+        chaintools
+    </h1>
+  </span>
 
   <p align="center">
     <a href="https://img.shields.io/badge/version-0.0.2-green" target="_blank">
@@ -22,13 +24,11 @@
     </a>
   </p>
 
-
-  <p align="center">
-  work with .chain files in Rust
-  </p>
-
   <p align="center">
     <samp>
+        <span>work with .chain files in Rust</span>
+        <br>
+        <br>
         <a href="https://docs.rs/chaintools/0.0.2/chaintools/">docs</a> .
         <a href="https://github.com/alejandrogzi/chaintools?tab=readme-ov-file#Usage">usage</a> .
         <a href="https://github.com/alejandrogzi/chaintools?tab=readme-ov-file#Features">features</a> .
