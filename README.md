@@ -75,14 +75,14 @@ let reader = Reader::<chaintools::Chain>::from_path("example.chain")?;
 // Iterate over all chains
 for chain in reader.chains() {
     println!("Chain {}: score={}", chain.id, chain.score);
-    println!("  Target: {}:{}-{} ({})", 
-             chain.t_name.as_str().unwrap_or("invalid"),
-             chain.t_start, chain.t_end,
-             if chain.t_strand == chaintools::Strand::Plus { "+" } else { "-" });
+    println!("  Reference: {}:{}-{} ({})", 
+             chain.reference_name.as_str().unwrap_or("invalid"),
+             chain.reference_start, chain.reference_end,
+             if chain.reference_strand == chaintools::Strand::Plus { "+" } else { "-" });
     println!("  Query: {}:{}-{} ({})", 
-             chain.q_name.as_str().unwrap_or("invalid"),
-             chain.q_start, chain.q_end,
-             if chain.q_strand == chaintools::Strand::Plus { "+" } else { "-" });
+             chain.query_name.as_str().unwrap_or("invalid"),
+             chain.query_start, chain.query_end,
+             if chain.query_strand == chaintools::Strand::Plus { "+" } else { "-" });
     println!("  Blocks: {}", chain.blocks.as_slice().len());
 }
 
@@ -156,7 +156,13 @@ Where:
 - `tStart`, `tEnd`, `qStart`, `qEnd`: Alignment coordinates
 - `id`: Chain identifier
 - `size`: Length of aligned region in bases
-- `dt`, `dq`: Optional gap sizes on target and query sequences
+- `dt`, `dq`: Optional gap sizes on the reference and query sequences
+
+In the Rust API, block gap fields are exposed as `gap_reference` and
+`gap_query`.
+
+In the Rust API, the `t*` header fields are exposed as `reference_*` and the
+`q*` fields are exposed as `query_*`.
 
 ### Example Chain Record
 
@@ -186,16 +192,16 @@ use chaintools::{Chain, Strand, ByteSlice};
 // Chain contains zero-copy references to sequence names
 let chain = Chain {
     score: 100,
-    t_name: ByteSlice::from(b"chr1"),  // Zero-copy reference
-    t_size: 1000,
-    t_strand: Strand::Plus,
-    t_start: 0,
-    t_end: 100,
-    q_name: ByteSlice::from(b"chr2"),  // Zero-copy reference
-    q_size: 1000,
-    q_strand: Strand::Plus,
-    q_start: 0,
-    q_end: 100,
+    reference_name: ByteSlice::from(b"chr1"),  // Zero-copy reference
+    reference_size: 1000,
+    reference_strand: Strand::Plus,
+    reference_start: 0,
+    reference_end: 100,
+    query_name: ByteSlice::from(b"chr2"),  // Zero-copy reference
+    query_size: 1000,
+    query_strand: Strand::Plus,
+    query_start: 0,
+    query_end: 100,
     id: 1,
     blocks: BlockSlice::empty(),
 };
@@ -209,9 +215,9 @@ Represents an aligned region with optional gaps:
 use chaintools::Block;
 
 let block = Block {
-    size: 100,  // 100 bases aligned
-    dt: 50,     // 50 bases gap on target
-    dq: 30,     // 30 bases gap on query
+    size: 100,          // 100 bases aligned
+    gap_reference: 50,  // 50 bases gap on the reference
+    gap_query: 30,      // 30 bases gap on the query
 };
 ```
 

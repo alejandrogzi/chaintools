@@ -1,16 +1,19 @@
+// Copyright (c) 2026 Alejandro Gonzales-Irribarren <alejandrxgzi@gmail.com>
+// Distributed under the terms of the Apache License, Version 2.0.
+
 use std::ops::Range;
 use std::sync::Arc;
 
 /// One alignment block.
 ///
-/// Represents a contiguous alignment region between target and query sequences.
+/// Represents a contiguous alignment region between reference and query sequences.
 /// Each block defines the size of the aligned region and gaps to the next block.
 ///
 /// # Fields
 ///
 /// * `size` - Length of the aligned region in bases
-/// * `dt` - Gap size on target sequence before next block
-/// * `dq` - Gap size on query sequence before next block
+/// * `gap_reference` - Gap size on the reference sequence before the next block
+/// * `gap_query` - Gap size on the query sequence before the next block
 ///
 /// # Examples
 ///
@@ -18,16 +21,16 @@ use std::sync::Arc;
 /// use chaintools::Block;
 ///
 /// let block = Block {
-///     size: 100,  // 100 bases aligned
-///     dt: 50,     // 50 bases gap on target
-///     dq: 30,     // 30 bases gap on query
+///     size: 100,          // 100 bases aligned
+///     gap_reference: 50,  // 50 bases gap on the reference
+///     gap_query: 30,      // 30 bases gap on the query
 /// };
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Block {
     pub size: u32,
-    pub dt: u32,
-    pub dq: u32,
+    pub gap_reference: u32,
+    pub gap_query: u32,
 }
 
 /// Borrowed slice of blocks stored contiguously.
@@ -46,7 +49,11 @@ pub struct Block {
 /// use chaintools::{Block, BlockSlice};
 /// use std::sync::Arc;
 ///
-/// let blocks = vec![Block { size: 100, dt: 0, dq: 0 }];
+/// let blocks = vec![Block {
+///     size: 100,
+///     gap_reference: 0,
+///     gap_query: 0,
+/// }];
 /// let storage = Arc::new(blocks);
 /// let slice = BlockSlice::new(storage.clone(), 0..1);
 ///
@@ -76,7 +83,11 @@ impl BlockSlice {
     /// use chaintools::{Block, BlockSlice};
     /// use std::sync::Arc;
     ///
-    /// let blocks = vec![Block { size: 100, dt: 0, dq: 0 }];
+    /// let blocks = vec![Block {
+    ///     size: 100,
+    ///     gap_reference: 0,
+    ///     gap_query: 0,
+    /// }];
     /// let storage = Arc::new(blocks);
     /// let slice = BlockSlice::new(storage, 0..1);
     /// ```
@@ -101,8 +112,16 @@ impl BlockSlice {
     /// use std::sync::Arc;
     ///
     /// let blocks = vec![
-    ///     Block { size: 100, dt: 0, dq: 0 },
-    ///     Block { size: 50, dt: 10, dq: 5 },
+    ///     Block {
+    ///         size: 100,
+    ///         gap_reference: 0,
+    ///         gap_query: 0,
+    ///     },
+    ///     Block {
+    ///         size: 50,
+    ///         gap_reference: 10,
+    ///         gap_query: 5,
+    ///     },
     /// ];
     /// let storage = Arc::new(blocks);
     /// // Note: BlockSlice::new is private, this is just for demonstration

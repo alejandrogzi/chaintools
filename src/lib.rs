@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Alejandro Gonzales-Irribarren <alejandrxgzi@gmail.com>
+// Distributed under the terms of the Apache License, Version 2.0.
+
 //! # chaintools
 //!
 //! A high-performance library for parsing chain files, which describe pairwise alignments
@@ -17,7 +20,7 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust
+//! ```no_run
 //! use chaintools::Reader;
 //!
 //! // Load a chain file (automatically uses mmap when available)
@@ -34,7 +37,7 @@
 //!
 //! ### Streaming large files
 //!
-//! ```rust
+//! ```no_run
 //! use chaintools::stream::StreamingReader;
 //!
 //! // Stream from a file (low memory usage)
@@ -49,19 +52,22 @@
 //!
 //! ### Parallel processing (`parallel` feature)
 //!
-//! ```rust
+//! ```no_run
+//! # #[cfg(feature = "parallel")] {
 //! use chaintools::Reader;
 //!
 //! // Parse large files faster using multiple threads
 //! let reader = Reader::<chaintools::Chain>::from_path_parallel("huge.chain")?;
 //!
 //! println!("Parsed {} chains in parallel", reader.len());
+//! # }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! ### Random access with indexing (`index` feature)
 //!
-//! ```rust
+//! ```no_run
+//! # #[cfg(feature = "index")] {
 //! use chaintools::ChainIndex;
 //!
 //! // Build an index for fast random access
@@ -73,6 +79,7 @@
 //! }
 //!
 //! println!("Index contains {} chains", index.len());
+//! # }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
@@ -82,7 +89,7 @@
 //! - `gzip`: Built-in gzip compression support
 //! - `index`: Random access indexing for chains
 //! - `parallel`: Multi-threaded parsing with rayon
-//! - `default`: No features enabled by default
+//! - `default`: Enables `mmap`
 //!
 //! ## Installation
 //!
@@ -93,6 +100,8 @@
 //! chaintools = { version = "0.0.2", features = ["mmap", "gzip"] }
 //! ```
 
+#[cfg(feature = "sequence")]
+pub mod antirepeat;
 pub mod block;
 pub mod chain;
 pub mod error;
@@ -100,8 +109,12 @@ pub mod error;
 pub mod index;
 pub mod parser;
 pub mod reader;
+#[cfg(feature = "sequence")]
+pub mod sequence;
 pub mod storage;
 pub mod stream;
+#[cfg(feature = "sequence")]
+pub mod writer;
 
 pub use block::{Block, BlockSlice};
 pub use chain::{Chain, Strand};
@@ -110,4 +123,6 @@ pub use error::ChainError;
 pub use index::{ChainIndex, ChainSpan};
 pub use reader::Reader;
 pub use storage::ByteSlice;
-pub use stream::{OwnedChain, StreamingReader};
+pub use stream::{OwnedChain, OwnedChainHeader, StreamItem, StreamingReader};
+#[cfg(feature = "sequence")]
+pub use writer::{write_chain_dense, write_chain_header, write_dense_blocks};

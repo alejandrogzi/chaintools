@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Alejandro Gonzales-Irribarren <alejandrxgzi@gmail.com>
+// Distributed under the terms of the Apache License, Version 2.0.
+
 use std::borrow::Cow;
 
 #[cfg(any(feature = "parallel", feature = "index"))]
@@ -5,7 +8,7 @@ use std::ops::Range;
 
 use crate::{Block, ChainError};
 
-use super::common::{is_blank, parse_block, parse_header, read_line, ChainMeta};
+use super::common::{is_blank, parse_block, parse_header_with_default_id, read_line, ChainMeta};
 
 /// Parses all chains from a byte buffer using sequential parsing.
 ///
@@ -41,6 +44,7 @@ pub(crate) fn parse_chains_sequential(
     let mut blocks = Vec::new();
     let mut pos = 0usize;
     let len = bytes.len();
+    let mut next_id = 1u64;
 
     while pos < len {
         let line_start = pos;
@@ -49,7 +53,13 @@ pub(crate) fn parse_chains_sequential(
         if is_blank(line) {
             continue;
         }
-        let mut meta = parse_header(line, line_start)?;
+        let (mut meta, has_explicit_id) = parse_header_with_default_id(line, line_start, next_id)?;
+        if !has_explicit_id {
+            next_id = next_id.checked_add(1).ok_or_else(|| ChainError::Format {
+                offset: line_start,
+                msg: Cow::Borrowed("generated chain id overflows u64"),
+            })?;
+        }
         let block_start = blocks.len();
 
         loop {

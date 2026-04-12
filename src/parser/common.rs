@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Alejandro Gonzales-Irribarren <alejandrxgzi@gmail.com>
+// Distributed under the terms of the Apache License, Version 2.0.
+
 use std::borrow::Cow;
 use std::ops::Range;
 
@@ -14,31 +17,31 @@ use crate::{Block, ChainError, Strand};
 /// # Fields
 ///
 /// * `score` - Chain alignment score
-/// * `t_name` - Byte range of target name in original buffer
-/// * `t_size` - Target sequence size
-/// * `t_strand` - Target strand orientation
-/// * `t_start` - Target start coordinate
-/// * `t_end` - Target end coordinate
-/// * `q_name` - Byte range of query name in original buffer
-/// * `q_size` - Query sequence size
-/// * `q_strand` - Query strand orientation
-/// * `q_start` - Query start coordinate
-/// * `q_end` - Query end coordinate
+/// * `reference_name` - Byte range of the reference name in the original buffer
+/// * `reference_size` - Reference sequence size
+/// * `reference_strand` - Reference strand orientation
+/// * `reference_start` - Reference start coordinate
+/// * `reference_end` - Reference end coordinate
+/// * `query_name` - Byte range of the query name in the original buffer
+/// * `query_size` - Query sequence size
+/// * `query_strand` - Query strand orientation
+/// * `query_start` - Query start coordinate
+/// * `query_end` - Query end coordinate
 /// * `id` - Chain identifier
 /// * `blocks` - Range of block indices in the global block storage
 #[derive(Debug)]
 pub(crate) struct ChainMeta {
     pub score: i64,
-    pub t_name: Range<usize>,
-    pub t_size: u32,
-    pub t_strand: Strand,
-    pub t_start: u32,
-    pub t_end: u32,
-    pub q_name: Range<usize>,
-    pub q_size: u32,
-    pub q_strand: Strand,
-    pub q_start: u32,
-    pub q_end: u32,
+    pub reference_name: Range<usize>,
+    pub reference_size: u32,
+    pub reference_strand: Strand,
+    pub reference_start: u32,
+    pub reference_end: u32,
+    pub query_name: Range<usize>,
+    pub query_size: u32,
+    pub query_strand: Strand,
+    pub query_start: u32,
+    pub query_end: u32,
     pub id: u64,
     pub blocks: Range<usize>,
 }
@@ -148,11 +151,27 @@ pub(crate) fn is_blank(line: &[u8]) -> bool {
 /// let meta = parse_header(header, 0)?;
 ///
 /// assert_eq!(meta.score, 100);
-/// assert_eq!(meta.t_size, 1000);
+/// assert_eq!(meta.reference_size, 1000);
 /// assert_eq!(meta.id, 1);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+#[cfg_attr(not(feature = "parallel"), allow(dead_code))]
 pub(crate) fn parse_header(line: &[u8], offset: usize) -> Result<ChainMeta, ChainError> {
+    let (meta, has_explicit_id) = parse_header_with_default_id(line, offset, 0)?;
+    if !has_explicit_id {
+        return Err(ChainError::Format {
+            offset,
+            msg: Cow::Borrowed("id missing"),
+        });
+    }
+    Ok(meta)
+}
+
+pub(crate) fn parse_header_with_default_id(
+    line: &[u8],
+    offset: usize,
+    default_id: u64,
+) -> Result<(ChainMeta, bool), ChainError> {
     let mut cursor = TokenCursor::new(line);
     let Some((kw_start, kw_end)) = cursor.next() else {
         return Err(ChainError::Format {
@@ -168,40 +187,47 @@ pub(crate) fn parse_header(line: &[u8], offset: usize) -> Result<ChainMeta, Chai
     }
 
     let score = parse_i64_token(&mut cursor, line, offset, "score")?;
-    let t_name = parse_range_token(&mut cursor, offset, "tName")?;
-    let t_size = parse_u32_token(&mut cursor, line, offset, "tSize")?;
-    let t_strand = parse_strand_token(&mut cursor, line, offset, "tStrand")?;
-    let t_start = parse_u32_token(&mut cursor, line, offset, "tStart")?;
-    let t_end = parse_u32_token(&mut cursor, line, offset, "tEnd")?;
+    let reference_name = parse_range_token(&mut cursor, offset, "tName")?;
+    let reference_size = parse_u32_token(&mut cursor, line, offset, "tSize")?;
+    let reference_strand = parse_strand_token(&mut cursor, line, offset, "tStrand")?;
+    let reference_start = parse_u32_token(&mut cursor, line, offset, "tStart")?;
+    let reference_end = parse_u32_token(&mut cursor, line, offset, "tEnd")?;
 
-    let q_name = parse_range_token(&mut cursor, offset, "qName")?;
-    let q_size = parse_u32_token(&mut cursor, line, offset, "qSize")?;
-    let q_strand = parse_strand_token(&mut cursor, line, offset, "qStrand")?;
-    let q_start = parse_u32_token(&mut cursor, line, offset, "qStart")?;
-    let q_end = parse_u32_token(&mut cursor, line, offset, "qEnd")?;
-    let id = parse_u64_token(&mut cursor, line, offset, "id")?;
+    let query_name = parse_range_token(&mut cursor, offset, "qName")?;
+    let query_size = parse_u32_token(&mut cursor, line, offset, "qSize")?;
+    let query_strand = parse_strand_token(&mut cursor, line, offset, "qStrand")?;
+    let query_start = parse_u32_token(&mut cursor, line, offset, "qStart")?;
+    let query_end = parse_u32_token(&mut cursor, line, offset, "qEnd")?;
+    let (id, has_explicit_id) = match cursor.next() {
+        Some((s, e)) => (parse_u64(&line[s..e], offset + s, "id")?, true),
+        None => (default_id, false),
+    };
 
-    Ok(ChainMeta {
-        score,
-        t_name,
-        t_size,
-        t_strand,
-        t_start,
-        t_end,
-        q_name,
-        q_size,
-        q_strand,
-        q_start,
-        q_end,
-        id,
-        blocks: 0..0,
-    })
+    Ok((
+        ChainMeta {
+            score,
+            reference_name,
+            reference_size,
+            reference_strand,
+            reference_start,
+            reference_end,
+            query_name,
+            query_size,
+            query_strand,
+            query_start,
+            query_end,
+            id,
+            blocks: 0..0,
+        },
+        has_explicit_id,
+    ))
 }
 
 /// Parses a chain block line into a Block struct.
 ///
 /// Parses block lines with format: "size [dt dq]" where dt and dq are optional
-/// gap sizes on target and query sequences. If dt/dq are missing, they default to 0.
+/// gap sizes on the reference and query sequences. In the Rust API they are exposed
+/// as `gap_reference` and `gap_query`. If dt/dq are missing, they default to 0.
 ///
 /// # Arguments
 ///
@@ -221,14 +247,14 @@ pub(crate) fn parse_header(line: &[u8], offset: usize) -> Result<ChainMeta, Chai
 /// // Block with gaps
 /// let block1 = parse_block(b"100 50 30", 0)?;
 /// assert_eq!(block1.size, 100);
-/// assert_eq!(block1.dt, 50);
-/// assert_eq!(block1.dq, 30);
+/// assert_eq!(block1.gap_reference, 50);
+/// assert_eq!(block1.gap_query, 30);
 ///
-/// // Block without gaps (dt/dq default to 0)
+/// // Block without gaps (gap fields default to 0)
 /// let block2 = parse_block(b"200", 0)?;
 /// assert_eq!(block2.size, 200);
-/// assert_eq!(block2.dt, 0);
-/// assert_eq!(block2.dq, 0);
+/// assert_eq!(block2.gap_reference, 0);
+/// assert_eq!(block2.gap_query, 0);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub(crate) fn parse_block(line: &[u8], offset: usize) -> Result<Block, ChainError> {
@@ -236,17 +262,25 @@ pub(crate) fn parse_block(line: &[u8], offset: usize) -> Result<Block, ChainErro
     let size = parse_u32_token(&mut cursor, line, offset, "block size")?;
     let maybe_dt = cursor.next();
     if let Some((dt_s, dt_e)) = maybe_dt {
-        let dt = parse_u32(&line[dt_s..dt_e], offset + dt_s, "dt")?;
+        let gap_reference = parse_u32(&line[dt_s..dt_e], offset + dt_s, "dt")?;
         let Some((dq_s, dq_e)) = cursor.next() else {
             return Err(ChainError::Format {
                 offset,
                 msg: Cow::Borrowed("block line missing dq value"),
             });
         };
-        let dq = parse_u32(&line[dq_s..dq_e], offset + dq_s, "dq")?;
-        Ok(Block { size, dt, dq })
+        let gap_query = parse_u32(&line[dq_s..dq_e], offset + dq_s, "dq")?;
+        Ok(Block {
+            size,
+            gap_reference,
+            gap_query,
+        })
     } else {
-        Ok(Block { size, dt: 0, dq: 0 })
+        Ok(Block {
+            size,
+            gap_reference: 0,
+            gap_query: 0,
+        })
     }
 }
 
@@ -399,6 +433,29 @@ impl<'a> TokenCursor<'a> {
     }
 }
 
+/// Parses a token from a byte buffer.
+///
+/// Parses a token from the buffer, returning the start and end positions
+/// of the token and the parsed value.
+///
+/// # Arguments
+///
+/// * `cursor` - Token cursor to parse from
+/// * `line` - Byte buffer to parse
+/// * `offset` - Byte offset of the token in the original file
+/// * `label` - Label for the token to use in error messages
+///
+/// # Example
+///
+/// ```ignore
+/// use chaintools::parser::common::parse_i64_token;
+///
+/// let line = b"100";
+/// let mut cursor = TokenCursor::new(line);
+/// let (start, end, value) = parse_i64_token(&mut cursor, line, 0, "score")?;
+/// assert_eq!(start, 0);
+/// assert_eq!(end, 3);
+/// Parses an i64 token from the cursor.
 fn parse_i64_token(
     cursor: &mut TokenCursor<'_>,
     line: &[u8],
@@ -414,6 +471,7 @@ fn parse_i64_token(
     parse_i64(&line[s..e], offset + s, label)
 }
 
+/// Parses a u64 token from the cursor.
 fn parse_u64_token(
     cursor: &mut TokenCursor<'_>,
     line: &[u8],
@@ -429,6 +487,10 @@ fn parse_u64_token(
     parse_u64(&line[s..e], offset + s, label)
 }
 
+/// Parses a token from a byte buffer.
+///
+/// Parses a token from the buffer, returning the start and end positions
+/// Parses a u32 token from the cursor.
 fn parse_u32_token(
     cursor: &mut TokenCursor<'_>,
     line: &[u8],
@@ -445,6 +507,28 @@ fn parse_u32_token(
     Ok(val as u32)
 }
 
+/// Parses a token from a byte buffer.
+///
+/// Parses a token from the buffer, returning the start and end positions
+/// of the token and the parsed value.
+///
+/// # Arguments
+///
+/// * `cursor` - Token cursor to parse from
+/// * `offset` - Byte offset of the token in the original file
+/// * `label` - Label for the token to use in error messages
+///
+/// # Example
+///
+/// ```ignore
+/// use chaintools::parser::common::parse_range_token;
+///
+/// let line = b"100";
+/// let mut cursor = TokenCursor::new(line);
+/// let (start, end, value) = parse_range_token(&mut cursor, 0, "score")?;
+/// assert_eq!(start, 0);
+/// assert_eq!(end, 3);
+/// Parses a range token from the cursor.
 fn parse_range_token(
     cursor: &mut TokenCursor<'_>,
     offset: usize,
@@ -459,6 +543,29 @@ fn parse_range_token(
     Ok((offset + s)..(offset + e))
 }
 
+/// Parses a token from a byte buffer.
+///
+/// Parses a token from the buffer, returning the start and end positions
+/// of the token and the parsed value.
+///
+/// # Arguments
+///
+/// * `cursor` - Token cursor to parse from
+/// * `line` - Byte buffer to parse
+/// * `offset` - Byte offset of the token in the original file
+/// * `label` - Label for the token to use in error messages
+///
+/// # Example
+///
+/// ```ignore
+/// use chaintools::parser::common::parse_strand_token;
+///
+/// let line = b"+";
+/// let mut cursor = TokenCursor::new(line);
+/// let (start, end, value) = parse_strand_token(&mut cursor, line, 0, "score")?;
+/// assert_eq!(start, 0);
+/// assert_eq!(end, 1);
+/// Parses a strand token from the cursor.
 fn parse_strand_token(
     cursor: &mut TokenCursor<'_>,
     line: &[u8],
@@ -481,6 +588,7 @@ fn parse_strand_token(
     }
 }
 
+/// Parses a u64 from raw bytes.
 fn parse_u64(data: &[u8], offset: usize, ctx: &str) -> Result<u64, ChainError> {
     let mut value: u64 = 0;
     if data.is_empty() {
@@ -508,6 +616,26 @@ fn parse_u64(data: &[u8], offset: usize, ctx: &str) -> Result<u64, ChainError> {
     Ok(value)
 }
 
+/// Parses a token from a byte buffer.
+///
+/// Parses a token from the buffer, returning the start and end positions
+/// of the token and the parsed value.
+///
+/// # Arguments
+///
+/// * `data` - Byte buffer to parse
+/// * `offset` - Byte offset of the token in the original file
+/// * `ctx` - Label for the token to use in error messages
+///
+/// # Example
+///
+/// ```ignore
+/// use chaintools::parser::common::parse_u32;
+///
+/// let data = b"100";
+/// let (start, end, value) = parse_u32(data, 0, "score")?;
+/// assert_eq!(start, 0);
+/// /// Parses a u32 from raw bytes.
 fn parse_u32(data: &[u8], offset: usize, ctx: &str) -> Result<u32, ChainError> {
     let val = parse_u64(data, offset, ctx)?;
     if val > u32::MAX as u64 {
@@ -519,6 +647,10 @@ fn parse_u32(data: &[u8], offset: usize, ctx: &str) -> Result<u32, ChainError> {
     Ok(val as u32)
 }
 
+/// Parses a token from a byte buffer.
+///
+/// Parses a token from the buffer, returning the start and end positions
+/// Parses an i64 from raw bytes.
 fn parse_i64(data: &[u8], offset: usize, ctx: &str) -> Result<i64, ChainError> {
     if data.is_empty() {
         return Err(ChainError::Format {

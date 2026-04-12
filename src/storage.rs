@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Alejandro Gonzales-Irribarren <alejandrxgzi@gmail.com>
+// Distributed under the terms of the Apache License, Version 2.0.
+
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -6,7 +9,29 @@ use crate::ChainError;
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
 
-/// Shared byte storage. Keeps parsing zero-copy while remaining lifetime-safe.
+/// Shared byte storage for zero-copy parsing with lifetime safety.
+///
+/// Wraps either a memory-mapped file or owned bytes in an Arc pointer,
+/// allowing multiple zero-copy references to share the same underlying
+/// storage safely without lifetime concerns.
+///
+/// # Variants
+///
+/// * `Mmap` - Memory-mapped file (requires `mmap` feature)
+/// * `Owned` - Owned buffer in an Arc pointer
+///
+/// # Examples
+///
+/// ```ignore
+/// use chaintools::storage::SharedBytes;
+///
+/// // Create from owned data
+/// let data = vec![1, 2, 3, 4, 5];
+/// let storage = SharedBytes::from_owned(data);
+///
+/// // Memory-mapped file (requires mmap feature)
+/// // let mmap_storage = SharedBytes::from_mmap(mmap);
+/// ```
 #[derive(Debug, Clone)]
 pub enum SharedBytes {
     #[cfg(feature = "mmap")]
@@ -45,6 +70,25 @@ impl SharedBytes {
     /// pointer, allowing for safe, zero-copy sharing of the data.
     ///
     /// This function is only available when the `mmap` feature is enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `mmap` - Memory-mapped file to wrap
+    ///
+    /// # Output
+    ///
+    /// Returns a new `SharedBytes` instance
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use chaintools::storage::SharedBytes;
+    /// use memmap2::Mmap;
+    ///
+    /// let file = std::fs::File::open("data.bin")?;
+    /// let mmap = unsafe { Mmap::map(&file)? };
+    /// let shared = SharedBytes::from_mmap(mmap);
+    /// ```
     pub(crate) fn from_mmap(mmap: Mmap) -> Self {
         SharedBytes::Mmap(Arc::new(mmap))
     }

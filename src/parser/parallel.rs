@@ -1,4 +1,5 @@
-use std::ops::Range;
+// Copyright (c) 2026 Alejandro Gonzales-Irribarren <alejandrxgzi@gmail.com>
+// Distributed under the terms of the Apache License, Version 2.0.
 
 use rayon::prelude::*;
 
@@ -10,8 +11,8 @@ use super::locate_chain_ranges;
 /// Parses all chains from a byte buffer using parallel processing.
 ///
 /// Uses Rayon to parse multiple chains simultaneously on different threads.
-/// First locates all chain ranges, then parses them in parallel, and finally
-/// reassembles the results in the correct order.
+/// First locates all chain ranges, then parses them in parallel while preserving
+/// input order, and finally merges the per-chain block buffers.
 ///
 /// # Arguments
 ///
@@ -38,18 +39,16 @@ pub(crate) fn parse_chains_parallel(
     bytes: &[u8],
 ) -> Result<(Vec<ChainMeta>, Vec<Block>), ChainError> {
     let ranges = locate_chain_ranges(bytes)?;
-    let parsed: Result<Vec<(usize, ChainMeta, Vec<Block>)>, ChainError> = ranges
+    let parsed: Result<Vec<(ChainMeta, Vec<Block>)>, ChainError> = ranges
         .into_par_iter()
-        .enumerate()
-        .map(|(idx, range)| parse_one(bytes, range, idx))
+        .map(|range| parse_chain_in_range(bytes, range))
         .collect();
 
-    let mut parsed = parsed?;
-    parsed.sort_by(|a, b| a.0.cmp(&b.0));
-
+    let parsed = parsed?;
     let mut metas = Vec::with_capacity(parsed.len());
-    let mut all_blocks = Vec::new();
-    for (_idx, mut meta, mut blocks) in parsed.into_iter() {
+    let total_blocks = parsed.iter().map(|(_, blocks)| blocks.len()).sum();
+    let mut all_blocks = Vec::with_capacity(total_blocks);
+    for (mut meta, mut blocks) in parsed {
         let start = all_blocks.len();
         all_blocks.append(&mut blocks);
         let end = all_blocks.len();
@@ -58,28 +57,4 @@ pub(crate) fn parse_chains_parallel(
     }
 
     Ok((metas, all_blocks))
-}
-
-/// Parses a single chain within the given range.
-///
-/// Helper function used by the parallel parser to parse individual chains.
-/// Wraps the common parse_chain_in_range function with index tracking.
-///
-/// # Arguments
-///
-/// * `bytes` - Complete file buffer
-/// * `range` - Byte range containing exactly one chain
-/// * `idx` - Index of this chain for ordering purposes
-///
-/// # Output
-///
-/// Returns `Ok((idx, ChainMeta, Vec<Block>))` with the parsed data,
-/// or `Err(ChainError)` if parsing fails
-fn parse_one(
-    bytes: &[u8],
-    range: Range<usize>,
-    idx: usize,
-) -> Result<(usize, ChainMeta, Vec<Block>), ChainError> {
-    let (meta, blocks) = parse_chain_in_range(bytes, range)?;
-    Ok((idx, meta, blocks))
 }

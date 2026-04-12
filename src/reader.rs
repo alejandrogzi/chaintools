@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Alejandro Gonzales-Irribarren <alejandrxgzi@gmail.com>
+// Distributed under the terms of the Apache License, Version 2.0.
+
 #[cfg(feature = "gzip")]
 use std::io::BufReader;
 #[cfg(any(feature = "gzip", not(feature = "mmap")))]
@@ -280,16 +283,16 @@ impl Reader<Chain> {
             .into_iter()
             .map(|meta| Chain {
                 score: meta.score,
-                t_name: ByteSlice::new(bytes.clone(), meta.t_name),
-                t_size: meta.t_size,
-                t_strand: meta.t_strand,
-                t_start: meta.t_start,
-                t_end: meta.t_end,
-                q_name: ByteSlice::new(bytes.clone(), meta.q_name),
-                q_size: meta.q_size,
-                q_strand: meta.q_strand,
-                q_start: meta.q_start,
-                q_end: meta.q_end,
+                reference_name: ByteSlice::new(bytes.clone(), meta.reference_name),
+                reference_size: meta.reference_size,
+                reference_strand: meta.reference_strand,
+                reference_start: meta.reference_start,
+                reference_end: meta.reference_end,
+                query_name: ByteSlice::new(bytes.clone(), meta.query_name),
+                query_size: meta.query_size,
+                query_strand: meta.query_strand,
+                query_start: meta.query_start,
+                query_end: meta.query_end,
                 id: meta.id,
                 blocks: BlockSlice::new(blocks_arc.clone(), meta.blocks),
             })
