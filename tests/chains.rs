@@ -24,33 +24,33 @@ fn strand_copy_and_clone() {
 #[test]
 fn chain_creation() {
     let storage = SharedBytes::from_owned(b"chrYchr5".to_vec());
-    let t_name = ByteSlice::new(storage.clone(), 0..4);
-    let q_name = ByteSlice::new(storage.clone(), 4..8);
+    let reference_name = ByteSlice::new(storage.clone(), 0..4);
+    let query_name = ByteSlice::new(storage.clone(), 4..8);
 
     let chain = Chain {
         score: 4900,
-        t_name,
-        t_size: 58368225,
-        t_strand: Strand::Plus,
-        t_start: 25985403,
-        t_end: 25985638,
-        q_name,
-        q_size: 151006098,
-        q_strand: Strand::Minus,
-        q_start: 43257292,
-        q_end: 43257528,
+        reference_name,
+        reference_size: 58368225,
+        reference_strand: Strand::Plus,
+        reference_start: 25985403,
+        reference_end: 25985638,
+        query_name,
+        query_size: 151006098,
+        query_strand: Strand::Minus,
+        query_start: 43257292,
+        query_end: 43257528,
         id: 1,
         blocks: chaintools::BlockSlice::new(
             std::sync::Arc::new(vec![
                 chaintools::Block {
                     size: 9,
-                    dt: 1,
-                    dq: 0,
+                    gap_reference: 1,
+                    gap_query: 0,
                 },
                 chaintools::Block {
                     size: 10,
-                    dt: 0,
-                    dq: 5,
+                    gap_reference: 0,
+                    gap_query: 5,
                 },
             ]),
             0..2,
@@ -58,10 +58,10 @@ fn chain_creation() {
     };
 
     assert_eq!(chain.score, 4900);
-    assert_eq!(chain.t_name.as_str(), Some("chrY"));
-    assert_eq!(chain.q_name.as_str(), Some("chr5"));
-    assert_eq!(chain.t_strand, Strand::Plus);
-    assert_eq!(chain.q_strand, Strand::Minus);
+    assert_eq!(chain.reference_name.as_str(), Some("chrY"));
+    assert_eq!(chain.query_name.as_str(), Some("chr5"));
+    assert_eq!(chain.reference_strand, Strand::Plus);
+    assert_eq!(chain.query_strand, Strand::Minus);
     assert_eq!(chain.id, 1);
     assert_eq!(chain.blocks.as_slice().len(), 2);
 }
@@ -69,27 +69,27 @@ fn chain_creation() {
 #[test]
 fn chain_clone() {
     let storage = SharedBytes::from_owned(b"chrYchr5".to_vec());
-    let t_name = ByteSlice::new(storage.clone(), 0..4);
-    let q_name = ByteSlice::new(storage.clone(), 4..7);
+    let reference_name = ByteSlice::new(storage.clone(), 0..4);
+    let query_name = ByteSlice::new(storage.clone(), 4..7);
 
     let chain = Chain {
         score: 100,
-        t_name,
-        t_size: 1000,
-        t_strand: Strand::Plus,
-        t_start: 0,
-        t_end: 100,
-        q_name,
-        q_size: 1000,
-        q_strand: Strand::Plus,
-        q_start: 0,
-        q_end: 100,
+        reference_name,
+        reference_size: 1000,
+        reference_strand: Strand::Plus,
+        reference_start: 0,
+        reference_end: 100,
+        query_name,
+        query_size: 1000,
+        query_strand: Strand::Plus,
+        query_start: 0,
+        query_end: 100,
         id: 1,
         blocks: chaintools::BlockSlice::new(
             std::sync::Arc::new(vec![chaintools::Block {
                 size: 100,
-                dt: 0,
-                dq: 0,
+                gap_reference: 0,
+                gap_query: 0,
             }]),
             0..1,
         ),
@@ -98,34 +98,37 @@ fn chain_clone() {
     let cloned = chain.clone();
     assert_eq!(chain.score, cloned.score);
     assert_eq!(chain.id, cloned.id);
-    assert_eq!(chain.t_name.as_str(), cloned.t_name.as_str());
-    assert_eq!(chain.q_name.as_str(), cloned.q_name.as_str());
+    assert_eq!(
+        chain.reference_name.as_str(),
+        cloned.reference_name.as_str()
+    );
+    assert_eq!(chain.query_name.as_str(), cloned.query_name.as_str());
 }
 
 #[test]
 fn chain_debug_format() {
     let storage = SharedBytes::from_owned(b"chrYchr5".to_vec());
-    let t_name = ByteSlice::new(storage.clone(), 0..4);
-    let q_name = ByteSlice::new(storage.clone(), 4..7);
+    let reference_name = ByteSlice::new(storage.clone(), 0..4);
+    let query_name = ByteSlice::new(storage.clone(), 4..7);
 
     let chain = Chain {
         score: 100,
-        t_name,
-        t_size: 1000,
-        t_strand: Strand::Plus,
-        t_start: 0,
-        t_end: 100,
-        q_name,
-        q_size: 1000,
-        q_strand: Strand::Plus,
-        q_start: 0,
-        q_end: 100,
+        reference_name,
+        reference_size: 1000,
+        reference_strand: Strand::Plus,
+        reference_start: 0,
+        reference_end: 100,
+        query_name,
+        query_size: 1000,
+        query_strand: Strand::Plus,
+        query_start: 0,
+        query_end: 100,
         id: 1,
         blocks: chaintools::BlockSlice::new(
             std::sync::Arc::new(vec![chaintools::Block {
                 size: 100,
-                dt: 0,
-                dq: 0,
+                gap_reference: 0,
+                gap_query: 0,
             }]),
             0..1,
         ),

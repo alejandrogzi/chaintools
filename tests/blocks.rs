@@ -5,33 +5,33 @@ use std::sync::Arc;
 fn block_creation() {
     let block = Block {
         size: 100,
-        dt: 50,
-        dq: 30,
+        gap_reference: 50,
+        gap_query: 30,
     };
 
     assert_eq!(block.size, 100);
-    assert_eq!(block.dt, 50);
-    assert_eq!(block.dq, 30);
+    assert_eq!(block.gap_reference, 50);
+    assert_eq!(block.gap_query, 30);
 }
 
 #[test]
 fn block_equality() {
     let block1 = Block {
         size: 100,
-        dt: 50,
-        dq: 30,
+        gap_reference: 50,
+        gap_query: 30,
     };
 
     let block2 = Block {
         size: 100,
-        dt: 50,
-        dq: 30,
+        gap_reference: 50,
+        gap_query: 30,
     };
 
     let block3 = Block {
         size: 200,
-        dt: 50,
-        dq: 30,
+        gap_reference: 50,
+        gap_query: 30,
     };
 
     assert_eq!(block1, block2);
@@ -43,18 +43,18 @@ fn block_slice_creation() {
     let blocks = vec![
         Block {
             size: 100,
-            dt: 0,
-            dq: 0,
+            gap_reference: 0,
+            gap_query: 0,
         },
         Block {
             size: 50,
-            dt: 10,
-            dq: 5,
+            gap_reference: 10,
+            gap_query: 5,
         },
         Block {
             size: 75,
-            dt: 20,
-            dq: 15,
+            gap_reference: 20,
+            gap_query: 15,
         },
     ];
 
@@ -71,13 +71,13 @@ fn block_slice_full_range() {
     let blocks = vec![
         Block {
             size: 100,
-            dt: 0,
-            dq: 0,
+            gap_reference: 0,
+            gap_query: 0,
         },
         Block {
             size: 50,
-            dt: 10,
-            dq: 5,
+            gap_reference: 10,
+            gap_query: 5,
         },
     ];
 
@@ -95,13 +95,13 @@ fn block_slice_single_element() {
     let blocks = vec![
         Block {
             size: 100,
-            dt: 0,
-            dq: 0,
+            gap_reference: 0,
+            gap_query: 0,
         },
         Block {
             size: 50,
-            dt: 10,
-            dq: 5,
+            gap_reference: 10,
+            gap_query: 5,
         },
     ];
 
@@ -118,13 +118,13 @@ fn block_slice_empty_range() {
     let blocks = vec![
         Block {
             size: 100,
-            dt: 0,
-            dq: 0,
+            gap_reference: 0,
+            gap_query: 0,
         },
         Block {
             size: 50,
-            dt: 10,
-            dq: 5,
+            gap_reference: 10,
+            gap_query: 5,
         },
     ];
 
@@ -138,8 +138,8 @@ fn block_slice_empty_range() {
 fn block_slice_clone() {
     let blocks = vec![Block {
         size: 100,
-        dt: 0,
-        dq: 0,
+        gap_reference: 0,
+        gap_query: 0,
     }];
     let storage = Arc::new(blocks);
     let slice = BlockSlice::new(storage.clone(), 0..1);

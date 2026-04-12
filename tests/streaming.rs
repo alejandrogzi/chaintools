@@ -1,4 +1,4 @@
-use chaintools::StreamingReader;
+use chaintools::{StreamItem, StreamingReader};
 use std::io::{BufReader, Cursor};
 
 const SIMPLE_CHAIN: &str = "chain 100 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n50\n50\n\n";
@@ -19,8 +19,8 @@ fn streaming_reader_parse_single_chain() {
 
     let chain = reader.next_chain().unwrap().expect("Should parse a chain");
     assert_eq!(chain.score, 100);
-    assert_eq!(chain.t_name, b"chr1");
-    assert_eq!(chain.q_name, b"chr2");
+    assert_eq!(chain.reference_name, b"chr1");
+    assert_eq!(chain.query_name, b"chr2");
     assert_eq!(chain.blocks.len(), 2);
     assert_eq!(chain.blocks[0].size, 50);
 }
@@ -80,6 +80,42 @@ fn streaming_reader_skip_blank_lines() {
 }
 
 #[test]
+fn streaming_reader_next_item_returns_metadata_lines() {
+    let data =
+        "#meta-one\n\n#meta-two\r\nchain 100 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n50\n50\n\n";
+
+    let cursor = Cursor::new(data.as_bytes());
+    let mut reader = StreamingReader::new(BufReader::new(cursor));
+
+    match reader.next_item().unwrap().expect("metadata item") {
+        StreamItem::MetaLine(line) => assert_eq!(line, b"#meta-one"),
+        StreamItem::Header(_) => panic!("expected metadata line"),
+    }
+
+    match reader.next_item().unwrap().expect("second metadata item") {
+        StreamItem::MetaLine(line) => assert_eq!(line, b"#meta-two"),
+        StreamItem::Header(_) => panic!("expected metadata line"),
+    }
+
+    match reader.next_item().unwrap().expect("header item") {
+        StreamItem::Header(header) => assert_eq!(header.score, 100),
+        StreamItem::MetaLine(_) => panic!("expected header"),
+    }
+}
+
+#[test]
+fn streaming_reader_next_header_skips_metadata_lines() {
+    let data = "#meta\nchain 100 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n50\n50\n\n";
+
+    let cursor = Cursor::new(data.as_bytes());
+    let mut reader = StreamingReader::new(BufReader::new(cursor));
+
+    let chain = reader.next_chain().unwrap().expect("should parse a chain");
+    assert_eq!(chain.score, 100);
+    assert_eq!(chain.id, 1);
+}
+
+#[test]
 fn streaming_reader_chain_with_multiple_blocks() {
     let data = "chain 100 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n10\n20\n30\n\n";
 
@@ -104,12 +140,12 @@ fn streaming_reader_chain_with_gaps() {
     assert_eq!(chain.blocks.len(), 2);
 
     assert_eq!(chain.blocks[0].size, 10);
-    assert_eq!(chain.blocks[0].dt, 5);
-    assert_eq!(chain.blocks[0].dq, 3);
+    assert_eq!(chain.blocks[0].gap_reference, 5);
+    assert_eq!(chain.blocks[0].gap_query, 3);
 
     assert_eq!(chain.blocks[1].size, 20);
-    assert_eq!(chain.blocks[1].dt, 0);
-    assert_eq!(chain.blocks[1].dq, 10);
+    assert_eq!(chain.blocks[1].gap_reference, 0);
+    assert_eq!(chain.blocks[1].gap_query, 10);
 }
 
 #[test]
@@ -121,15 +157,15 @@ fn streaming_reader_strand_parsing() {
     let cursor = Cursor::new(data_plus.as_bytes());
     let mut reader = StreamingReader::new(BufReader::new(cursor));
     let chain = reader.next_chain().unwrap().expect("Should parse chain");
-    assert_eq!(chain.t_strand, chaintools::Strand::Plus);
-    assert_eq!(chain.q_strand, chaintools::Strand::Plus);
+    assert_eq!(chain.reference_strand, chaintools::Strand::Plus);
+    assert_eq!(chain.query_strand, chaintools::Strand::Plus);
 
     // Test minus strand
     let cursor = Cursor::new(data_minus.as_bytes());
     let mut reader = StreamingReader::new(BufReader::new(cursor));
     let chain = reader.next_chain().unwrap().expect("Should parse chain");
-    assert_eq!(chain.t_strand, chaintools::Strand::Minus);
-    assert_eq!(chain.q_strand, chaintools::Strand::Minus);
+    assert_eq!(chain.reference_strand, chaintools::Strand::Minus);
+    assert_eq!(chain.query_strand, chaintools::Strand::Minus);
 }
 
 #[test]

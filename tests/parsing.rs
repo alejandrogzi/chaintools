@@ -26,34 +26,34 @@ fn parse_complex_chain() {
     let chain = reader.chains().next().unwrap();
     assert_eq!(chain.score, 1000);
     assert_eq!(chain.id, 42);
-    assert_eq!(chain.t_name.as_str(), Some("chr1"));
-    assert_eq!(chain.q_name.as_str(), Some("chr2"));
-    assert_eq!(chain.t_strand, chaintools::Strand::Plus);
-    assert_eq!(chain.q_strand, chaintools::Strand::Minus);
+    assert_eq!(chain.reference_name.as_str(), Some("chr1"));
+    assert_eq!(chain.query_name.as_str(), Some("chr2"));
+    assert_eq!(chain.reference_strand, chaintools::Strand::Plus);
+    assert_eq!(chain.query_strand, chaintools::Strand::Minus);
 
     // Check blocks
     let blocks = chain.blocks.as_slice();
     assert_eq!(blocks.len(), 5);
 
     assert_eq!(blocks[0].size, 100);
-    assert_eq!(blocks[0].dt, 10);
-    assert_eq!(blocks[0].dq, 5);
+    assert_eq!(blocks[0].gap_reference, 10);
+    assert_eq!(blocks[0].gap_query, 5);
 
     assert_eq!(blocks[1].size, 200);
-    assert_eq!(blocks[1].dt, 0);
-    assert_eq!(blocks[1].dq, 20);
+    assert_eq!(blocks[1].gap_reference, 0);
+    assert_eq!(blocks[1].gap_query, 20);
 
     assert_eq!(blocks[2].size, 50);
-    assert_eq!(blocks[2].dt, 15);
-    assert_eq!(blocks[2].dq, 0);
+    assert_eq!(blocks[2].gap_reference, 15);
+    assert_eq!(blocks[2].gap_query, 0);
 
     assert_eq!(blocks[3].size, 300);
-    assert_eq!(blocks[3].dt, 5);
-    assert_eq!(blocks[3].dq, 10);
+    assert_eq!(blocks[3].gap_reference, 5);
+    assert_eq!(blocks[3].gap_query, 10);
 
     assert_eq!(blocks[4].size, 150);
-    assert_eq!(blocks[4].dt, 0);
-    assert_eq!(blocks[4].dq, 0);
+    assert_eq!(blocks[4].gap_reference, 0);
+    assert_eq!(blocks[4].gap_query, 0);
 }
 
 #[test]
@@ -88,8 +88,8 @@ fn parse_chain_with_large_coordinates() {
     let chain = reader.chains().next().unwrap();
 
     assert_eq!(chain.score, 9223372036854775807); // i64::MAX
-    assert_eq!(chain.t_size, 4294967295); // u32::MAX
-    assert_eq!(chain.q_size, 4294967295); // u32::MAX
+    assert_eq!(chain.reference_size, 4294967295); // u32::MAX
+    assert_eq!(chain.query_size, 4294967295); // u32::MAX
     assert_eq!(chain.id, 18446744073709551615); // u64::MAX
     assert_eq!(chain.blocks.as_slice()[0].size, 4294967295);
 }
@@ -104,8 +104,8 @@ fn parse_chain_with_minimal_blocks() {
     assert_eq!(chain.score, 1);
     assert_eq!(chain.blocks.as_slice().len(), 1);
     assert_eq!(chain.blocks.as_slice()[0].size, 1);
-    assert_eq!(chain.blocks.as_slice()[0].dt, 0);
-    assert_eq!(chain.blocks.as_slice()[0].dq, 0);
+    assert_eq!(chain.blocks.as_slice()[0].gap_reference, 0);
+    assert_eq!(chain.blocks.as_slice()[0].gap_query, 0);
 }
 
 #[test]
@@ -117,8 +117,8 @@ fn parse_chain_with_zero_size_blocks() {
 
     assert_eq!(chain.blocks.as_slice().len(), 2);
     assert_eq!(chain.blocks.as_slice()[0].size, 0);
-    assert_eq!(chain.blocks.as_slice()[0].dt, 10);
-    assert_eq!(chain.blocks.as_slice()[0].dq, 5);
+    assert_eq!(chain.blocks.as_slice()[0].gap_reference, 10);
+    assert_eq!(chain.blocks.as_slice()[0].gap_query, 5);
 }
 
 #[test]
@@ -133,15 +133,15 @@ chain 400 chr1 1000 - 0 100 chr2 1000 + 0 100 4\n80\n80\n\n";
 
     let chains: Vec<_> = reader.chains().collect();
 
-    assert_eq!(chains[0].t_strand, chaintools::Strand::Plus);
-    assert_eq!(chains[0].q_strand, chaintools::Strand::Plus);
+    assert_eq!(chains[0].reference_strand, chaintools::Strand::Plus);
+    assert_eq!(chains[0].query_strand, chaintools::Strand::Plus);
 
-    assert_eq!(chains[1].t_strand, chaintools::Strand::Minus);
-    assert_eq!(chains[1].q_strand, chaintools::Strand::Minus);
+    assert_eq!(chains[1].reference_strand, chaintools::Strand::Minus);
+    assert_eq!(chains[1].query_strand, chaintools::Strand::Minus);
 
-    assert_eq!(chains[2].t_strand, chaintools::Strand::Plus);
-    assert_eq!(chains[2].q_strand, chaintools::Strand::Minus);
+    assert_eq!(chains[2].reference_strand, chaintools::Strand::Plus);
+    assert_eq!(chains[2].query_strand, chaintools::Strand::Minus);
 
-    assert_eq!(chains[3].t_strand, chaintools::Strand::Minus);
-    assert_eq!(chains[3].q_strand, chaintools::Strand::Plus);
+    assert_eq!(chains[3].reference_strand, chaintools::Strand::Minus);
+    assert_eq!(chains[3].query_strand, chaintools::Strand::Plus);
 }
