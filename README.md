@@ -32,7 +32,7 @@
         <a href="https://docs.rs/chaintools/0.0.2/chaintools/">docs</a> .
         <a href="https://github.com/alejandrogzi/chaintools/tree/master/assets/usage/usage.md">usage</a> .
         <a href="https://github.com/alejandrogzi/chaintools/tree/master/assets/tools">tools</a> .
-        <a href="https://github.com/alejandrogzi/chaintools?tab=readme-ov-file#Format">chains</a> 
+        <a href="https://genome.ucsc.edu/goldenpath/help/chain.html">chains</a> 
     </samp>
   </p>
 
