@@ -5,7 +5,7 @@ use rayon::prelude::*;
 
 use crate::{Block, ChainError};
 
-use super::common::{parse_chain_in_range, ChainMeta};
+use super::common::{ChainMeta, parse_chain_in_range};
 use super::locate_chain_ranges;
 
 /// Parses all chains from a byte buffer using parallel processing.

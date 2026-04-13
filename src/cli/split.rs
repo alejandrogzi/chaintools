@@ -86,6 +86,7 @@ impl SplitArgs {
     }
 }
 
+/// Splits a chain file into chunks or files.
 #[derive(Debug, Clone, Copy)]
 enum SplitMode {
     Files(NonZeroUsize),
@@ -93,6 +94,7 @@ enum SplitMode {
 }
 
 impl SplitMode {
+    /// Describes the split mode.
     fn describe(self) -> String {
         match self {
             SplitMode::Files(count) => format!("{} output files", count.get()),
@@ -238,11 +240,45 @@ where
     Ok(())
 }
 
+/// Validates output arguments for split command.
+/// Checks that gzip output is only used when the gzip feature is enabled.
+///
+/// # Arguments
+///
+/// * `args` - Split command arguments
+///
+/// # Output
+///
+/// Returns `Ok(())` if valid or `Err(CliError)` if invalid
 #[cfg(feature = "gzip")]
 fn validate_output_args(_args: &SplitArgs) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Validates output arguments for split command.
+///
+/// Returns an error if gzip is requested but the gzip feature is not enabled.
+///
+/// # Arguments
+///
+/// * `args` - Split command arguments
+///
+/// # Output
+///
+/// Returns `Ok(())` if valid or `Err(CliError)` if invalid
+///
+/// # Examples
+///
+/// ```ignore
+/// use chaintools::cli::split::validate_output_args;
+/// use chaintools::CliError;
+///
+/// let args = SplitArgs::test_validate_args(vec!["chaintools", "--in", "file.chain"]);
+/// assert!(validate_output_args(&args).is_ok());
+///
+/// let args = SplitArgs::test_validate_args(vec!["chaintools", "--in", "file.chain", "--gzip"]);
+/// assert!(matches!(validate_output_args(&args), Err(CliError::Message(_))));
+/// ```
 #[cfg(not(feature = "gzip"))]
 fn validate_output_args(args: &SplitArgs) -> Result<(), CliError> {
     if args.gzip {
@@ -253,6 +289,27 @@ fn validate_output_args(args: &SplitArgs) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Returns true if the split mode should collapse into a single output file.
+///
+/// # Arguments
+///
+/// * `mode` - The split mode
+/// * `total_chains` - The total number of chains in the input file
+///
+/// # Example
+///
+/// ```ignore
+/// use chaintools::cli::split::should_collapse;
+/// use chaintools::cli::split::SplitMode;
+///
+/// let mode = SplitMode::Files(NonZeroUsize::new(2).unwrap());
+/// let total_chains = 10;
+/// assert!(should_collapse(mode, total_chains));
+///
+/// let mode = SplitMode::Chunks(NonZeroUsize::new(2).unwrap());
+/// let total_chains = 10;
+/// assert!(!should_collapse(mode, total_chains));
+/// ```
 fn should_collapse(mode: SplitMode, total_chains: usize) -> bool {
     match mode {
         SplitMode::Files(files) => files.get() > total_chains,
@@ -260,6 +317,37 @@ fn should_collapse(mode: SplitMode, total_chains: usize) -> bool {
     }
 }
 
+/// Plans the output files for a split.
+///
+/// # Arguments
+///
+/// * `output_dir` - The output directory
+/// * `basename` - The base name of the input file
+/// * `total_bytes` - The total size of the input file
+/// * `chain_starts` - The byte ranges of each chain in the input file
+/// * `mode` - The split mode
+/// * `gzip` - Whether to compress the output files
+///
+/// # Output
+///
+/// Returns a vector of output file plans
+///
+/// # Examples
+///
+/// ```ignore
+/// use chaintools::cli::split::plan_outputs;
+/// use chaintools::cli::split::SplitMode;
+/// use std::path::PathBuf;
+///
+/// let output_dir = PathBuf::from("out");
+/// let basename = "sample.chain";
+/// let total_bytes = 100;
+/// let chain_starts = vec![0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+/// let mode = SplitMode::Files(NonZeroUsize::new(2).unwrap());
+/// let gzip = false;
+/// let plans = plan_outputs(&output_dir, &basename, total_bytes, &chain_starts, mode, gzip);
+/// assert_eq!(plans.len(), 2);
+/// ```
 fn plan_outputs(
     output_dir: &Path,
     basename: &str,
@@ -307,10 +395,59 @@ fn plan_outputs(
         .collect()
 }
 
+/// Returns the path for a single output file.
+///
+/// # Arguments
+///
+/// * `output_dir` - The output directory
+/// * `basename` - The base name of the input file
+/// * `gzip` - Whether to compress the output file
+///
+/// # Output
+///
+/// Returns the path for the single output file
+///
+/// # Examples
+///
+/// ```ignore
+/// use chaintools::cli::split::single_output_path;
+/// use std::path::PathBuf;
+///
+/// let output_dir = PathBuf::from("out");
+/// let basename = "sample.chain";
+/// let gzip = false;
+/// let path = single_output_path(&output_dir, &basename, gzip);
+/// assert_eq!(path, output_dir.join("part.00001.sample.chain"));
+/// ```
 fn single_output_path(output_dir: &Path, basename: &str, gzip: bool) -> PathBuf {
     output_dir.join(output_filename(1, 5, basename, gzip))
 }
 
+/// Returns the filename for an output file.
+///
+/// # Arguments
+///
+/// * `index` - The output file index
+/// * `width` - The width of the output file index
+/// * `basename` - The base name of the input file
+/// * `gzip` - Whether to compress the output file
+///
+/// # Output
+///
+/// Returns the filename for the output file
+///
+/// # Examples
+///
+/// ```ignore
+/// use chaintools::cli::split::output_filename;
+///
+/// let index = 1;
+/// let width = 5;
+/// let basename = "sample.chain";
+/// let gzip = false;
+/// let filename = output_filename(index, width, basename, gzip);
+/// assert_eq!(filename, "part.00001.sample.chain");
+/// ```
 fn output_filename(index: usize, width: usize, basename: &str, gzip: bool) -> String {
     if gzip {
         format!("part.{index:0width$}.{basename}.chain.gz")
@@ -319,6 +456,7 @@ fn output_filename(index: usize, width: usize, basename: &str, gzip: bool) -> St
     }
 }
 
+/// Returns the width of a decimal number.
 fn decimal_width(mut value: usize) -> usize {
     let mut width = 1;
     while value >= 10 {
@@ -328,6 +466,7 @@ fn decimal_width(mut value: usize) -> usize {
     width
 }
 
+/// Ensures output paths do not exist.
 fn ensure_output_paths_absent(paths: &[PathBuf]) -> Result<(), CliError> {
     for path in paths {
         if path.exists() {
@@ -340,6 +479,7 @@ fn ensure_output_paths_absent(paths: &[PathBuf]) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Writes output files in parallel.
 #[cfg(feature = "parallel")]
 fn write_output_plans(
     plans: &[OutputPlan],
@@ -358,6 +498,7 @@ fn write_output_plans(
     })
 }
 
+/// Writes output files sequentially.
 #[cfg(not(feature = "parallel"))]
 fn write_output_plans(
     plans: &[OutputPlan],
@@ -375,6 +516,7 @@ fn write_output_plans(
     Ok(())
 }
 
+/// Writes a slice of bytes to a file.
 fn write_output_slice(
     path: PathBuf,
     source: SharedInputBytes,
@@ -407,6 +549,7 @@ fn write_output_slice(
     Ok(())
 }
 
+/// Scans the input file for chain starts.
 fn scan_chain_starts(bytes: &[u8]) -> Result<Vec<usize>, CliError> {
     let mut starts = Vec::new();
     let mut pos = 0usize;
@@ -451,6 +594,7 @@ fn scan_chain_starts(bytes: &[u8]) -> Result<Vec<usize>, CliError> {
     Ok(starts)
 }
 
+/// Reads a line from a slice of bytes.
 fn read_trimmed_line(bytes: &[u8], pos: usize) -> (usize, &[u8]) {
     if pos >= bytes.len() {
         return (pos, &[]);
@@ -471,10 +615,17 @@ fn read_trimmed_line(bytes: &[u8], pos: usize) -> (usize, &[u8]) {
     (next, line)
 }
 
+/// Returns true if the line is blank.
 fn is_blank(line: &[u8]) -> bool {
     line.iter().all(|byte| byte.is_ascii_whitespace())
 }
 
+/// Shared input bytes.
+///
+/// # Variants
+///
+/// * `Mmap` - Bytes from a memory-mapped file
+/// * `Owned` - Bytes from an owned vector
 #[cfg_attr(all(feature = "mmap", not(feature = "gzip")), allow(dead_code))]
 #[derive(Clone)]
 enum SharedInputBytes {
@@ -483,6 +634,7 @@ enum SharedInputBytes {
     Owned(std::sync::Arc<Vec<u8>>),
 }
 
+/// Returns a slice of bytes.
 impl SharedInputBytes {
     fn as_slice(&self) -> &[u8] {
         match self {
@@ -493,6 +645,7 @@ impl SharedInputBytes {
     }
 }
 
+/// Loaded input file.
 struct LoadedInput {
     bytes: SharedInputBytes,
     basename: String,
@@ -502,6 +655,7 @@ struct LoadedInput {
 }
 
 impl LoadedInput {
+    /// Loads an input file from a path.
     fn from_path(path: &Path) -> Result<Self, CliError> {
         if path.extension().is_some_and(|ext| ext == OsStr::new("gz")) {
             #[cfg(feature = "gzip")]
@@ -556,6 +710,7 @@ impl LoadedInput {
         }
     }
 
+    /// Loads an input file from standard input.
     fn from_stdin<R: Read>(stdin: &mut R) -> Result<Self, CliError> {
         let (temp, size) = TempInputFile::write_from_reader(stdin)?;
         if size == 0 {
@@ -617,18 +772,22 @@ impl LoadedInput {
         }
     }
 
+    /// Returns the bytes of the input file.
     fn bytes(&self) -> &[u8] {
         self.bytes.as_slice()
     }
 
+    /// Returns the shared bytes of the input file.
     fn shared_bytes(&self) -> SharedInputBytes {
         self.bytes.clone()
     }
 
+    /// Returns the source path of the input file.
     fn source_path(&self) -> Option<&Path> {
         self.source_path.as_deref()
     }
 
+    /// Returns the symlink source path of the input file.
     fn symlink_source(&self, gzip_output: bool) -> Option<PathBuf> {
         let path = self.source_path.as_ref()?;
         match (self.source_encoding, gzip_output) {
@@ -638,6 +797,12 @@ impl LoadedInput {
     }
 }
 
+/// Source encoding.
+///
+/// # Variants
+///
+/// * `Plain` - Plain text
+/// * `Gzip` - Gzip compressed
 #[cfg_attr(not(feature = "gzip"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SourceEncoding {
@@ -645,17 +810,25 @@ enum SourceEncoding {
     Gzip,
 }
 
+/// Output plan.
+///
+/// # Fields
+///
+/// * `path` - The output file path
+/// * `byte_range` - The byte range of the output file
 #[derive(Debug, Clone)]
 struct OutputPlan {
     path: PathBuf,
     byte_range: std::ops::Range<usize>,
 }
 
+/// Temporary input file.
 struct TempInputFile {
     path: PathBuf,
 }
 
 impl TempInputFile {
+    /// Writes input from a reader to a temporary file.
     fn write_from_reader<R: Read>(reader: &mut R) -> Result<(Self, u64), CliError> {
         let path = create_temp_path("stdin")?;
         let mut file = OpenOptions::new()
@@ -667,6 +840,7 @@ impl TempInputFile {
         Ok((Self { path }, size))
     }
 
+    /// Returns true if the file starts with gzip magic.
     fn starts_with_gzip_magic(&self) -> Result<bool, CliError> {
         let mut file = File::open(&self.path)?;
         let mut magic = [0u8; 2];
@@ -675,12 +849,14 @@ impl TempInputFile {
     }
 }
 
+/// Drops a temporary input file.
 impl Drop for TempInputFile {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
     }
 }
 
+/// Copies data from a reader to a writer with a buffer.
 fn copy_with_buffer<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<u64, CliError> {
     let mut buffer = [0u8; IO_BUFFER_CAPACITY];
     let mut total = 0u64;
@@ -697,6 +873,7 @@ fn copy_with_buffer<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result
     Ok(total)
 }
 
+/// Creates a temporary path.
 fn create_temp_path(prefix: &str) -> Result<PathBuf, CliError> {
     let dir = std::env::temp_dir();
     for attempt in 0..1024u64 {
@@ -719,6 +896,7 @@ fn create_temp_path(prefix: &str) -> Result<PathBuf, CliError> {
     )))
 }
 
+/// Derives the base name of an input file.
 fn derive_basename(path: &Path) -> String {
     let file_name = path
         .file_name()
@@ -733,12 +911,14 @@ fn derive_basename(path: &Path) -> String {
     }
 }
 
+/// Creates a symlink.
 #[cfg(unix)]
 fn create_symlink(source: &Path, destination: &Path) -> Result<(), CliError> {
     std::os::unix::fs::symlink(source, destination)?;
     Ok(())
 }
 
+/// Creates a symlink.
 #[cfg(windows)]
 fn create_symlink(source: &Path, destination: &Path) -> Result<(), CliError> {
     std::os::windows::fs::symlink_file(source, destination)?;

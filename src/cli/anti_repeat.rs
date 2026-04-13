@@ -11,7 +11,7 @@ use chaintools::writer::write_chain_dense;
 use chaintools::{OwnedChain, StreamItem, StreamingReader};
 use clap::Args;
 #[cfg(feature = "gzip")]
-use flate2::{write::GzEncoder, Compression};
+use flate2::{Compression, write::GzEncoder};
 
 use super::CliError;
 
@@ -468,7 +468,7 @@ mod tests {
     use super::*;
     use clap::Parser;
     #[cfg(feature = "gzip")]
-    use flate2::{read::MultiGzDecoder, write::GzEncoder, Compression};
+    use flate2::{Compression, read::MultiGzDecoder, write::GzEncoder};
     use std::fs;
     #[cfg(feature = "gzip")]
     use std::io::Read;

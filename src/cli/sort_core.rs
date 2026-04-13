@@ -8,7 +8,7 @@ use std::io::{self, BufRead, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chaintools::{write_chain_dense, Block, OwnedChain, StreamItem, StreamingReader};
+use chaintools::{Block, OwnedChain, StreamItem, StreamingReader, write_chain_dense};
 #[cfg(feature = "parallel")]
 use rayon::prelude::ParallelSliceMut;
 

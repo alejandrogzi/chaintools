@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::error::ChainError;
 use crate::parser::locate_chain_ranges;
-use crate::storage::{is_gz_path, SharedBytes};
+use crate::storage::{SharedBytes, is_gz_path};
 
 #[cfg(all(feature = "index", not(feature = "gzip")))]
 use crate::storage::gzip_feature_error;

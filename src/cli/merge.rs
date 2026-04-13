@@ -17,7 +17,7 @@ use super::sort_core::{
 use super::CliError;
 
 const BYTES_PER_GB: f64 = 1_000_000_000.0;
-const DEFAULT_MAX_GB: f64 = 8.0;
+const DEFAULT_MAX_GB: f64 = 16.0;
 const COPY_BUFFER_CAPACITY: usize = 1024 * 1024;
 
 /// Command-line arguments for the merge subcommand.

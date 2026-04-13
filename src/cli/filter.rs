@@ -11,7 +11,7 @@ use std::str::FromStr;
 use chaintools::{Block, ChainError, OwnedChainHeader, Strand, StreamingReader};
 use clap::{Args, ValueEnum};
 #[cfg(feature = "gzip")]
-use flate2::{write::GzEncoder, Compression};
+use flate2::{Compression, write::GzEncoder};
 
 use super::CliError;
 
@@ -1588,9 +1588,10 @@ mod tests {
             b"",
         );
 
-        assert!(err
-            .to_string()
-            .contains("--out-chain must not be the same path as an input --chain"));
+        assert!(
+            err.to_string()
+                .contains("--out-chain must not be the same path as an input --chain")
+        );
     }
 
     #[cfg(feature = "gzip")]
@@ -1639,9 +1640,10 @@ mod tests {
     fn gzip_output_requires_gzip_feature() {
         let err = run_err(vec![arg("--gzip")], CHAIN_A.as_bytes());
 
-        assert!(err
-            .to_string()
-            .contains("--gzip requires chaintools to be built with the `gzip` feature"));
+        assert!(
+            err.to_string()
+                .contains("--gzip requires chaintools to be built with the `gzip` feature")
+        );
     }
 
     #[test]

@@ -10,7 +10,6 @@ pub mod split;
 
 use std::fmt;
 use std::io::{self, BufRead, Write};
-use std::num::NonZeroUsize;
 
 use chaintools::ChainError;
 use clap::{Parser, Subcommand};
@@ -22,7 +21,7 @@ use log::LevelFilter;
 /// thread count and logging level, plus subcommands.
 #[derive(Debug, Parser)]
 #[command(name = "chaintools")]
-#[command(about = "Work with .chain files")]
+#[command(about = "work with .chain files in rust")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(author = env!("CARGO_PKG_AUTHORS"))]
 pub struct Cli {
@@ -31,9 +30,10 @@ pub struct Cli {
         long,
         global = true,
         value_name = "N",
-        help_heading = "Global Options"
+        help_heading = "Global Options",
+        default_value_t = num_cpus::get()
     )]
-    threads: Option<NonZeroUsize>,
+    threads: usize,
 
     #[arg(
         short = 'L',
@@ -53,8 +53,8 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     #[command(
-        name = "anti-repeat",
-        alias = "antirepeat",
+        name = "antirepeat",
+        alias = "anti-repeat",
         about = "Filter chains dominated by repeats or degenerate DNA"
     )]
     AntiRepeat(anti_repeat::AntiRepeatArgs),
@@ -71,7 +71,7 @@ enum Command {
 impl std::fmt::Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Command::AntiRepeat(_) => f.write_str("anti-repeat"),
+            Command::AntiRepeat(_) => f.write_str("antirepeat"),
             Command::Filter(_) => f.write_str("filter"),
             Command::Merge(_) => f.write_str("merge"),
             Command::Split(_) => f.write_str("split"),
@@ -260,15 +260,14 @@ fn configure_logging(level: LevelFilter) -> Result<(), CliError> {
 
 #[cfg(feature = "parallel")]
 /// Configures the global rayon thread pool.
-fn configure_threads(threads: Option<NonZeroUsize>) -> Result<(), CliError> {
-    if let Some(threads) = threads {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(threads.get())
-            .build_global()
-            .map_err(|err| {
-                CliError::Message(format!("failed to configure global thread pool: {err}"))
-            })?;
-    }
+fn configure_threads(threads: usize) -> Result<(), CliError> {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .map_err(|err| {
+            CliError::Message(format!("failed to configure global thread pool: {err}"))
+        })?;
+
     Ok(())
 }
 
@@ -291,7 +290,7 @@ mod tests {
         ])
         .expect("global options should parse");
 
-        assert_eq!(cli.threads.map(NonZeroUsize::get), Some(4));
+        assert_eq!(cli.threads, 4);
         assert_eq!(cli.level, Some(LevelFilter::Debug));
         assert!(matches!(cli.command, Command::Filter(_)));
     }
@@ -310,7 +309,7 @@ mod tests {
         ])
         .expect("global options should parse after subcommand");
 
-        assert_eq!(cli.threads.map(NonZeroUsize::get), Some(2));
+        assert_eq!(cli.threads, 2);
         assert_eq!(cli.level, Some(LevelFilter::Trace));
         assert!(matches!(cli.command, Command::Filter(_)));
     }
@@ -497,11 +496,12 @@ mod tests {
 
 #[cfg(not(feature = "parallel"))]
 /// Returns an error if threads is requested without parallel feature.
-fn configure_threads(threads: Option<NonZeroUsize>) -> Result<(), CliError> {
-    if threads.is_some() {
+fn configure_threads(threads: usize) -> Result<(), CliError> {
+    if threads == 1 {
+        return Ok(());
+    } else {
         return Err(CliError::Message(
             "--threads requires chaintools to be built with the `parallel` feature".to_owned(),
         ));
     }
-    Ok(())
 }

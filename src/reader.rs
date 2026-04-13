@@ -15,7 +15,7 @@ use crate::error::ChainError;
 use crate::parser::parse_chains_sequential;
 #[cfg(not(feature = "gzip"))]
 use crate::storage::gzip_feature_error;
-use crate::storage::{is_gz_path, ByteSlice, SharedBytes};
+use crate::storage::{ByteSlice, SharedBytes, is_gz_path};
 
 #[cfg(feature = "parallel")]
 use crate::parser::parse_chains_parallel;

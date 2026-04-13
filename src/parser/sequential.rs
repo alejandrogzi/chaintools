@@ -55,7 +55,7 @@ pub(crate) fn parse_chains_sequential(
         }
         let (mut meta, has_explicit_id) = parse_header_with_default_id(line, line_start, next_id)?;
         if !has_explicit_id {
-            next_id = next_id.checked_add(1).ok_or_else(|| ChainError::Format {
+            next_id = next_id.checked_add(1).ok_or(ChainError::Format {
                 offset: line_start,
                 msg: Cow::Borrowed("generated chain id overflows u64"),
             })?;
