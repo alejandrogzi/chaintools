@@ -62,7 +62,7 @@ Add this to your `Cargo.toml`:
 [dependencies]
 chaintools = { version = "0.0.2", features = ["mmap", "gzip", "parallel"] }
 ```
-
+## Benchmarks
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
 | `chaintools filter` | 7.205 ± 0.102 | 7.087 | 7.266 | 1.00 |
