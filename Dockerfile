@@ -6,7 +6,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
-RUN cargo build --release --all-features --locked && \
+RUN cargo build --release --all-features --bin chaintools --locked && \
     strip target/release/chaintools
 
 # ---------- Runtime Stage ----------
