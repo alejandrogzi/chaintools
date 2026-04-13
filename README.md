@@ -79,4 +79,4 @@ chaintools = { version = "0.0.2", features = ["mmap", "gzip", "parallel"] }
 
 </div>
 
-*ran using hyperfine 1.18.0 on an AMD Ryzen 7 5700X with 128 GB of RAM and 16 cores with a 262 MB chain.gz file as input*erfine 1.18.0 on an AMD Ryzen 7 5700X with 128 GB of RAM and 16 cores with a 262 MB chain.gz file as input
+*ran using hyperfine 1.18.0 on an AMD Ryzen 7 5700X with 128 GB of RAM and 16 cores with a 262 MB chain.gz file as input
