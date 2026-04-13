@@ -63,14 +63,20 @@ Add this to your `Cargo.toml`:
 chaintools = { version = "0.0.2", features = ["mmap", "gzip", "parallel"] }
 ```
 ## Benchmarks
+
+<div align="center">
+
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
 | `chaintools filter` | 7.205 ± 0.102 | 7.087 | 7.266 | 1.00 |
 | `UCSC chainFilter` | 11.778 ± 0.043 | 11.729 | 11.812 | 1.63 ± 0.02 |
-|:---|---:|---:|---:|---:|
+||
 | `chaintools sort` | 12.434 ± 0.165 | 12.298 | 12.617 | 1.00 |
 | `UCSC chainSort` | 18.279 ± 0.025 | 18.254 | 18.303 | 1.47 ± 0.02 |
-|:---|---:|---:|---:|---:|
+||
 | `chaintools merge` | 11.995 ± 0.045 | 11.943 | 12.024 | 1.00 |
 | `UCSC chainMergeSort` | 17.616 ± 0.071 | 17.557 | 17.696 | 1.47 ± 0.01 |
 
+</div>
+
+*ran using hyperfine 1.18.0 on an AMD Ryzen 7 5700X with 128 GB of RAM and 16 cores with a 262 MB chain.gz file as input*erfine 1.18.0 on an AMD Ryzen 7 5700X with 128 GB of RAM and 16 cores with a 262 MB chain.gz file as input
