@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
-use chaintools::{storage::is_gz_path, StreamingReader};
+use chaintools::{io::storage::is_gz_path, StreamingReader};
 use clap::{Args, ValueEnum};
 #[cfg(feature = "gzip")]
 use flate2::{read::MultiGzDecoder, write::GzEncoder, Compression};
@@ -485,7 +485,7 @@ fn append_unsorted_input<W: Write>(
 
     #[cfg(not(feature = "gzip"))]
     if is_gz_path(path) {
-        return Err(CliError::Chain(chaintools::storage::gzip_feature_error()));
+        return Err(CliError::Chain(chaintools::io::storage::gzip_feature_error()));
     }
 
     let file = File::open(path)?;

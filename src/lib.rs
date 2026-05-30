@@ -38,7 +38,7 @@
 //! ### Streaming large files
 //!
 //! ```no_run
-//! use chaintools::stream::StreamingReader;
+//! use chaintools::io::stream::StreamingReader;
 //!
 //! // Stream from a file (low memory usage)
 //! let mut reader = StreamingReader::from_path("large.chain")?;
@@ -100,29 +100,27 @@
 //! chaintools = { version = "0.0.2", features = ["mmap", "gzip"] }
 //! ```
 
-#[cfg(feature = "sequence")]
-pub mod antirepeat;
-pub mod block;
-pub mod chain;
-pub mod error;
-#[cfg(feature = "index")]
-pub mod index;
+pub mod io;
+pub mod model;
 pub mod parser;
-pub mod reader;
 #[cfg(feature = "sequence")]
-pub mod sequence;
-pub mod storage;
-pub mod stream;
-#[cfg(feature = "sequence")]
-pub mod writer;
+pub mod seq;
 
-pub use block::{Block, BlockSlice};
-pub use chain::{Chain, Strand};
-pub use error::ChainError;
+pub use model::block::{Block, BlockSlice};
+pub use model::chain::{Chain, Strand};
+pub use model::error::ChainError;
+
 #[cfg(feature = "index")]
-pub use index::{ChainIndex, ChainSpan};
-pub use reader::Reader;
-pub use storage::ByteSlice;
-pub use stream::{OwnedChain, OwnedChainHeader, StreamItem, StreamingReader};
+pub use io::index::{ChainIndex, ChainSpan};
+pub use io::reader::Reader;
+pub use io::storage::ByteSlice;
+pub use io::stream::{OwnedChain, OwnedChainHeader, StreamItem, StreamingReader};
 #[cfg(feature = "sequence")]
-pub use writer::{write_chain_dense, write_chain_header, write_dense_blocks};
+pub use io::writer::{write_chain_dense, write_chain_header, write_dense_blocks};
+
+#[cfg(feature = "sequence")]
+pub use seq::score::chainscore::{ChainScorer, ScoreConfig};
+#[cfg(feature = "sequence")]
+pub use seq::score::gapcalc::GapCalc;
+#[cfg(feature = "sequence")]
+pub use seq::score::scoring::{CompactMatrix, ScoreMatrix};

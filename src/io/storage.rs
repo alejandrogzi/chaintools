@@ -23,7 +23,7 @@ use memmap2::Mmap;
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::storage::SharedBytes;
+/// use chaintools::io::storage::SharedBytes;
 ///
 /// // Create from owned data
 /// let data = vec![1, 2, 3, 4, 5];
@@ -48,7 +48,7 @@ impl SharedBytes {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::storage::SharedBytes;
+    /// use chaintools::io::storage::SharedBytes;
     ///
     /// let data = vec![10, 20, 30];
     /// let shared_bytes = SharedBytes::from_owned(data);
@@ -82,7 +82,7 @@ impl SharedBytes {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::storage::SharedBytes;
+    /// use chaintools::io::storage::SharedBytes;
     /// use memmap2::Mmap;
     ///
     /// let file = std::fs::File::open("data.bin")?;
@@ -101,7 +101,7 @@ impl SharedBytes {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::storage::SharedBytes;
+    /// use chaintools::io::storage::SharedBytes;
     ///
     /// let data = vec![1, 2, 3, 4, 5];
     /// let shared_bytes = SharedBytes::from_owned(data);
@@ -122,7 +122,7 @@ impl SharedBytes {
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::storage::{ByteSlice, SharedBytes};
+/// use chaintools::io::storage::{ByteSlice, SharedBytes};
 ///
 /// let storage = SharedBytes::from_owned(vec![0, 10, 20, 30, 40]);
 ///
@@ -150,7 +150,7 @@ impl ByteSlice {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::storage::{ByteSlice, SharedBytes};
+    /// use chaintools::io::storage::{ByteSlice, SharedBytes};
     ///
     /// let storage = SharedBytes::from_owned(vec![0, 10, 20, 30, 40]);
     ///
@@ -171,7 +171,7 @@ impl ByteSlice {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::storage::{ByteSlice, SharedBytes};
+    /// use chaintools::io::storage::{ByteSlice, SharedBytes};
     ///
     /// let storage = SharedBytes::from_owned(vec![0, 10, 20, 30, 40]);
     /// let byte_slice = ByteSlice::new(storage, 1..4);
@@ -190,7 +190,7 @@ impl ByteSlice {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::storage::{ByteSlice, SharedBytes};
+    /// use chaintools::io::storage::{ByteSlice, SharedBytes};
     ///
     /// // A slice with valid UTF-8
     /// let storage1 = SharedBytes::from_owned(b"hello world".to_vec());
@@ -216,7 +216,7 @@ impl ByteSlice {
 ///
 /// ```ignore
 /// use std::path::Path;
-/// use chaintools::storage::is_gz_path;
+/// use chaintools::io::storage::is_gz_path;
 ///
 /// assert!(is_gz_path(Path::new("some/file.txt.gz")));
 /// assert!(!is_gz_path(Path::new("another/file.txt")));
@@ -234,7 +234,7 @@ pub fn is_gz_path(path: &std::path::Path) -> bool {
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::storage::gzip_feature_error;
+/// use chaintools::io::storage::gzip_feature_error;
 /// use chaintools::ChainError;
 ///
 /// let error = gzip_feature_error();

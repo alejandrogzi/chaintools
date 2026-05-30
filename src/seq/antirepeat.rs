@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
-use crate::error::ChainError;
-use crate::sequence::{SequenceCache, SequenceResolver};
+use crate::model::error::ChainError;
+use crate::seq::sequence::{SequenceCache, SequenceResolver};
 use crate::{OwnedChain, Strand};
 
 const OK_BEST2: f64 = 0.80;
@@ -23,7 +23,7 @@ const COMPLEMENT: [u8; 256] = build_complement_table();
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::antirepeat::AntiRepeatConfig;
+/// use chaintools::seq::antirepeat::AntiRepeatConfig;
 ///
 /// let config = AntiRepeatConfig {
 ///     min_score: 5000,
@@ -51,7 +51,7 @@ pub struct AntiRepeatConfig {
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::antirepeat::{AntiRepeatEngine, AntiRepeatConfig};
+/// use chaintools::seq::antirepeat::{AntiRepeatEngine, AntiRepeatConfig};
 ///
 /// let engine = AntiRepeatEngine::new(
 ///     "reference.2bit",
@@ -88,7 +88,7 @@ impl AntiRepeatEngine {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::antirepeat::{AntiRepeatEngine, AntiRepeatConfig};
+    /// use chaintools::seq::antirepeat::{AntiRepeatEngine, AntiRepeatConfig};
     ///
     /// let engine = AntiRepeatEngine::new(
     ///     "reference.2bit",
@@ -117,7 +117,7 @@ impl AntiRepeatEngine {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::antirepeat::AntiRepeatEngine;
+    /// use chaintools::seq::antirepeat::AntiRepeatEngine;
     ///
     /// let engine = AntiRepeatEngine::new("ref.2bit", "qry.2bit", config)?;
     /// let cfg = engine.config();
@@ -144,8 +144,8 @@ impl AntiRepeatEngine {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::antirepeat::AntiRepeatEngine;
-    /// use chaintools::sequence::SequenceCache;
+    /// use chaintools::seq::antirepeat::AntiRepeatEngine;
+    /// use chaintools::seq::sequence::SequenceCache;
     ///
     /// let engine = AntiRepeatEngine::new("ref.2bit", "qry.2bit", config)?;
     /// let mut cache = SequenceCache::default();
@@ -218,7 +218,7 @@ impl AntiRepeatEngine {
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::antirepeat::degeneracy_filter;
+/// use chaintools::seq::antirepeat::degeneracy_filter;
 /// use chaintools::{OwnedChain, Strand, Block};
 ///
 /// let target = b"ACGT";
@@ -293,7 +293,7 @@ pub fn degeneracy_filter(target: &[u8], query: &[u8], chain: &OwnedChain, min_sc
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::antirepeat::repeat_filter;
+/// use chaintools::seq::antirepeat::repeat_filter;
 /// use chaintools::{OwnedChain, Strand, Block};
 ///
 /// let target = b"ACGT";
@@ -344,7 +344,7 @@ pub fn repeat_filter(target: &[u8], query: &[u8], chain: &OwnedChain, min_score:
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::antirepeat::reverse_complement_in_place;
+/// use chaintools::seq::antirepeat::reverse_complement_in_place;
 ///
 /// let mut seq = b"ACGT".to_vec();
 /// reverse_complement_in_place(&mut seq);

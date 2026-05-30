@@ -1,4 +1,4 @@
-use chaintools::storage::{ByteSlice, SharedBytes};
+use chaintools::io::storage::{ByteSlice, SharedBytes};
 use std::path::Path;
 
 #[test]
@@ -77,19 +77,23 @@ fn byte_slice_clone() {
 
 #[test]
 fn is_gz_path_detection() {
-    assert!(chaintools::storage::is_gz_path(Path::new("file.txt.gz")));
-    assert!(chaintools::storage::is_gz_path(Path::new(
+    assert!(chaintools::io::storage::is_gz_path(Path::new(
+        "file.txt.gz"
+    )));
+    assert!(chaintools::io::storage::is_gz_path(Path::new(
         "path/to/file.chain.gz"
     )));
-    assert!(!chaintools::storage::is_gz_path(Path::new("file.txt")));
-    assert!(!chaintools::storage::is_gz_path(Path::new("file.gz.txt")));
-    assert!(!chaintools::storage::is_gz_path(Path::new("file")));
-    assert!(!chaintools::storage::is_gz_path(Path::new("")));
+    assert!(!chaintools::io::storage::is_gz_path(Path::new("file.txt")));
+    assert!(!chaintools::io::storage::is_gz_path(Path::new(
+        "file.gz.txt"
+    )));
+    assert!(!chaintools::io::storage::is_gz_path(Path::new("file")));
+    assert!(!chaintools::io::storage::is_gz_path(Path::new("")));
 }
 
 #[test]
 fn gzip_feature_error() {
-    let error = chaintools::storage::gzip_feature_error();
+    let error = chaintools::io::storage::gzip_feature_error();
 
     match error {
         chaintools::ChainError::Unsupported { msg } => {

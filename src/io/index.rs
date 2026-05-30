@@ -3,12 +3,12 @@
 
 use std::path::Path;
 
-use crate::error::ChainError;
+use crate::io::storage::{SharedBytes, is_gz_path};
+use crate::model::error::ChainError;
 use crate::parser::locate_chain_ranges;
-use crate::storage::{SharedBytes, is_gz_path};
 
 #[cfg(all(feature = "index", not(feature = "gzip")))]
-use crate::storage::gzip_feature_error;
+use crate::io::storage::gzip_feature_error;
 
 #[cfg(feature = "gzip")]
 use flate2::read::MultiGzDecoder;
@@ -29,7 +29,7 @@ use memmap2::MmapOptions;
 /// # Examples
 ///
 /// ```
-/// use chaintools::index::ChainSpan;
+/// use chaintools::io::index::ChainSpan;
 ///
 /// let span = ChainSpan { offset: 100, len: 50 };
 /// assert_eq!(span.offset, 100);
@@ -54,7 +54,7 @@ pub struct ChainSpan {
 /// # Examples
 ///
 /// ```no_run
-/// use chaintools::index::ChainIndex;
+/// use chaintools::io::index::ChainIndex;
 ///
 /// let index = ChainIndex::from_path("example.chain")?;
 /// println!("Found {} chains", index.len());
@@ -88,7 +88,7 @@ impl ChainIndex {
     /// # Examples
     ///
     /// ```no_run
-    /// use chaintools::index::ChainIndex;
+    /// use chaintools::io::index::ChainIndex;
     ///
     /// // Index a plain text chain file
     /// let index = ChainIndex::from_path("example.chain")?;
@@ -126,6 +126,7 @@ impl ChainIndex {
 
         #[cfg(not(feature = "mmap"))]
         {
+            use std::io::Read;
             let mut buffer = Vec::new();
             std::fs::File::open(path)?.read_to_end(&mut buffer)?;
             ChainIndex::from_owned(buffer)
@@ -150,7 +151,7 @@ impl ChainIndex {
     /// # Examples
     ///
     /// ```
-    /// use chaintools::index::ChainIndex;
+    /// use chaintools::io::index::ChainIndex;
     ///
     /// let chain_data = b"chain 1 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n10\n10\n\n";
     /// let index = ChainIndex::from_owned(chain_data.to_vec())?;
@@ -179,8 +180,8 @@ impl ChainIndex {
     /// # Examples
     ///
     /// ```
-    /// use chaintools::index::ChainIndex;
-    /// use chaintools::storage::SharedBytes;
+    /// use chaintools::io::index::ChainIndex;
+    /// use chaintools::io::storage::SharedBytes;
     ///
     /// let data = b"chain 1 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n10\n10\n\n";
     /// let shared = SharedBytes::from_owned(data.to_vec());
@@ -213,7 +214,7 @@ impl ChainIndex {
     /// # Examples
     ///
     /// ```no_run
-    /// use chaintools::index::ChainIndex;
+    /// use chaintools::io::index::ChainIndex;
     ///
     /// let index = ChainIndex::from_path("example.chain")?;
     /// let spans = index.spans();
@@ -240,7 +241,7 @@ impl ChainIndex {
     /// # Examples
     ///
     /// ```no_run
-    /// use chaintools::index::ChainIndex;
+    /// use chaintools::io::index::ChainIndex;
     ///
     /// let index = ChainIndex::from_path("example.chain")?;
     /// println!("Found {} chains", index.len());
@@ -263,7 +264,7 @@ impl ChainIndex {
     /// # Examples
     ///
     /// ```no_run
-    /// use chaintools::index::ChainIndex;
+    /// use chaintools::io::index::ChainIndex;
     ///
     /// let index = ChainIndex::from_path("empty.chain")?;
     ///
@@ -291,7 +292,7 @@ impl ChainIndex {
     /// # Examples
     ///
     /// ```no_run
-    /// use chaintools::index::ChainIndex;
+    /// use chaintools::io::index::ChainIndex;
     ///
     /// let index = ChainIndex::from_path("example.chain")?;
     ///

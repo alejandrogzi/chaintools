@@ -7,7 +7,7 @@ use std::io::{BufRead, BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::error::ChainError;
+use crate::model::error::ChainError;
 #[cfg(feature = "gzip")]
 use flate2::read::MultiGzDecoder;
 use twobit::{TwoBitFile, TwoBitPhysicalFile};
@@ -21,7 +21,7 @@ const TWOBIT_REV_MAGIC: [u8; 4] = [0x1a, 0x41, 0x27, 0x43];
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::sequence::SequenceMap;
+/// use chaintools::seq::sequence::SequenceMap;
 ///
 /// let mut map = SequenceMap::new();
 /// map.insert(b"chr1".to_vec(), b"ACGT".to_vec());
@@ -67,7 +67,7 @@ enum SequenceFormat {
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::sequence::SequenceResolver;
+/// use chaintools::seq::sequence::SequenceResolver;
 ///
 /// // Open a 2bit file (lazy loading)
 /// let resolver = SequenceResolver::new("genome.2bit")?;
@@ -95,7 +95,7 @@ impl SequenceResolver {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::sequence::SequenceResolver;
+    /// use chaintools::seq::sequence::SequenceResolver;
     ///
     /// // From 2bit file
     /// let resolver = SequenceResolver::new("genome.2bit")?;
@@ -141,7 +141,7 @@ impl SequenceResolver {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::sequence::{SequenceResolver, SequenceCache};
+    /// use chaintools::seq::sequence::{SequenceResolver, SequenceCache};
     ///
     /// let resolver = SequenceResolver::new("genome.2bit")?;
     /// let mut cache = SequenceCache::default();
@@ -177,7 +177,7 @@ impl SequenceResolver {
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::sequence::SequenceCache;
+/// use chaintools::seq::sequence::SequenceCache;
 ///
 /// let mut cache = SequenceCache::default();
 /// // Cache is used internally by SequenceResolver::fetch()
@@ -212,14 +212,20 @@ impl SequenceCache {
             }
         };
 
-        let sequence = reader
-            .read_sequence(seq_name, start as usize..end as usize)
-            .map_err(|err| {
-                sequence_error(format!(
+        let sequence = match reader.read_sequence(seq_name, start as usize..end as usize) {
+            Ok(sequence) => sequence,
+            // A missing chromosome is reported distinctly so callers can skip
+            // the affected chains instead of aborting the whole run.
+            Err(twobit::Error::MissingName(name)) => {
+                return Err(ChainError::MissingSequence { name: name.into() });
+            }
+            Err(err) => {
+                return Err(sequence_error(format!(
                     "cannot read {seq_name}:{start}-{end} from {}: {err}",
                     path.display()
-                ))
-            })?;
+                )));
+            }
+        };
         if sequence.len() != length as usize {
             return Err(sequence_error(format!(
                 "sequence range {seq_name}:{start}-{end} exceeds {}",
@@ -246,14 +252,14 @@ impl SequenceCache {
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::sequence::get_sequences;
+/// use chaintools::seq::sequence::get_sequences;
 ///
 /// // Load from 2bit file
 /// let sequences = get_sequences("genome.2bit")?;
 /// ```
 ///
 /// ```ignore
-/// use chaintools::sequence::get_sequences;
+/// use chaintools::seq::sequence::get_sequences;
 ///
 /// // Load from FASTA file
 /// let sequences = get_sequences("sequences.fa")?;
@@ -338,7 +344,7 @@ fn from_stdin() -> Result<SequenceMap, ChainError> {
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::sequence::from_2bit;
+/// use chaintools::seq::sequence::from_2bit;
 ///
 /// let sequences = from_2bit("genome.2bit")?;
 /// ```
@@ -412,7 +418,7 @@ fn collect_2bit_sequences<R: Read + std::io::Seek>(
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::sequence::from_fa;
+/// use chaintools::seq::sequence::from_fa;
 ///
 /// let sequences = from_fa("sequences.fa")?;
 /// ```
@@ -596,13 +602,16 @@ fn fetch_loaded_sequence(
     start: u32,
     length: u32,
 ) -> Result<Vec<u8>, ChainError> {
-    let sequence = sequences.get(seq_name).ok_or_else(|| {
-        sequence_error(format!(
-            "sequence {} not found in {}",
-            String::from_utf8_lossy(seq_name),
-            path.display()
-        ))
-    })?;
+    let sequence = match sequences.get(seq_name) {
+        Some(sequence) => sequence,
+        // A missing sequence name is reported distinctly so callers can skip
+        // the affected chains instead of aborting the whole run.
+        None => {
+            return Err(ChainError::MissingSequence {
+                name: String::from_utf8_lossy(seq_name).into_owned().into(),
+            });
+        }
+    };
     let start = start as usize;
     let end = start
         .checked_add(length as usize)

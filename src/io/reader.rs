@@ -9,13 +9,13 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::block::{Block, BlockSlice};
-use crate::chain::Chain;
-use crate::error::ChainError;
-use crate::parser::parse_chains_sequential;
 #[cfg(not(feature = "gzip"))]
-use crate::storage::gzip_feature_error;
-use crate::storage::{ByteSlice, SharedBytes, is_gz_path};
+use crate::io::storage::gzip_feature_error;
+use crate::io::storage::{ByteSlice, SharedBytes, is_gz_path};
+use crate::model::block::{Block, BlockSlice};
+use crate::model::chain::Chain;
+use crate::model::error::ChainError;
+use crate::parser::parse_chains_sequential;
 
 #[cfg(feature = "parallel")]
 use crate::parser::parse_chains_parallel;
