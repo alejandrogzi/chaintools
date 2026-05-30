@@ -5,9 +5,9 @@ use std::fs::File;
 use std::io::{BufRead, BufWriter, Write};
 use std::path::PathBuf;
 
-use chaintools::antirepeat::{AntiRepeatConfig, AntiRepeatEngine};
-use chaintools::sequence::SequenceCache;
-use chaintools::writer::write_chain_dense;
+use chaintools::io::writer::write_chain_dense;
+use chaintools::seq::antirepeat::{AntiRepeatConfig, AntiRepeatEngine};
+use chaintools::seq::sequence::SequenceCache;
 use chaintools::{OwnedChain, StreamItem, StreamingReader};
 use clap::Args;
 #[cfg(feature = "gzip")]

@@ -4,6 +4,7 @@
 pub mod anti_repeat;
 pub mod filter;
 pub mod merge;
+pub mod score;
 pub mod sort;
 mod sort_core;
 pub mod split;
@@ -62,6 +63,8 @@ enum Command {
     Filter(filter::FilterArgs),
     #[command(about = "Merge chain files")]
     Merge(merge::MergeArgs),
+    #[command(about = "Recompute chain scores from sequence (UCSC chainScore-compatible)")]
+    Score(score::ScoreArgs),
     #[command(about = "Split chain files")]
     Split(split::SplitArgs),
     #[command(about = "Sort chain files")]
@@ -74,6 +77,7 @@ impl std::fmt::Display for Command {
             Command::AntiRepeat(_) => f.write_str("antirepeat"),
             Command::Filter(_) => f.write_str("filter"),
             Command::Merge(_) => f.write_str("merge"),
+            Command::Score(_) => f.write_str("score"),
             Command::Split(_) => f.write_str("split"),
             Command::Sort(_) => f.write_str("sort"),
         }
@@ -177,6 +181,7 @@ where
         Command::AntiRepeat(args) => anti_repeat::run(args, stdin, stdout, stderr),
         Command::Filter(args) => filter::run(args, stdin, stdout, stderr),
         Command::Merge(args) => merge::run(args, stdin, stdout, stderr),
+        Command::Score(args) => score::run(args, stdin, stdout, stderr),
         Command::Split(args) => split::run(args, stdin, stdout, stderr),
         Command::Sort(args) => sort::run(args, stdin, stdout, stderr),
     };
@@ -221,6 +226,16 @@ fn resolve_log_level(
             Ok(LevelFilter::Off)
         }
         Command::Merge(args) => Ok(requested.unwrap_or_else(|| args.default_log_level())),
+        Command::Score(args) if args.writes_to_stdout() => {
+            if requested.is_some_and(|level| level != LevelFilter::Off) {
+                return Err(CliError::Message(
+                    "--level requires --out-chain when score writes chain output to stdout"
+                        .to_owned(),
+                ));
+            }
+            Ok(LevelFilter::Off)
+        }
+        Command::Score(args) => Ok(requested.unwrap_or_else(|| args.default_log_level())),
         Command::Split(args) if args.writes_to_stdout() => {
             if requested.is_some_and(|level| level != LevelFilter::Off) {
                 return Err(CliError::Message(
@@ -339,9 +354,10 @@ mod tests {
 
         let err = resolve_log_level(&cli.command, cli.level)
             .expect_err("stdout logging should be rejected");
-        assert!(err
-            .to_string()
-            .contains("--level requires --out-chain when filter writes chain output to stdout"));
+        assert!(
+            err.to_string()
+                .contains("--level requires --out-chain when filter writes chain output to stdout")
+        );
     }
 
     #[test]
@@ -401,9 +417,10 @@ mod tests {
 
         let err = resolve_log_level(&cli.command, cli.level)
             .expect_err("stdout logging should be rejected");
-        assert!(err
-            .to_string()
-            .contains("--level requires --out-chain when sort writes chain output to stdout"));
+        assert!(
+            err.to_string()
+                .contains("--level requires --out-chain when sort writes chain output to stdout")
+        );
     }
 
     #[test]

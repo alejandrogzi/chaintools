@@ -7,13 +7,13 @@ use std::path::Path;
 #[cfg(feature = "gzip")]
 use flate2::read::MultiGzDecoder;
 
-use crate::block::Block;
-use crate::chain::Strand;
-use crate::error::ChainError;
-use crate::parser::common::{is_blank, parse_block, parse_header_with_default_id};
 #[cfg(not(feature = "gzip"))]
-use crate::storage::gzip_feature_error;
-use crate::storage::is_gz_path;
+use crate::io::storage::gzip_feature_error;
+use crate::io::storage::is_gz_path;
+use crate::model::block::Block;
+use crate::model::chain::Strand;
+use crate::model::error::ChainError;
+use crate::parser::common::{is_blank, parse_block, parse_header_with_default_id};
 
 /// Owned chain representation for streaming mode.
 ///
@@ -40,7 +40,7 @@ use crate::storage::is_gz_path;
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::stream::OwnedChain;
+/// use chaintools::io::stream::OwnedChain;
 ///
 /// let chain = OwnedChain {
 ///     score: 100,
@@ -126,7 +126,7 @@ pub struct OwnedChainHeader {
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::stream::{StreamingReader, StreamItem};
+/// use chaintools::io::stream::{StreamingReader, StreamItem};
 /// use std::io::BufReader;
 ///
 /// let data = b"#comment\nchain 1 chr1 100 + 0 100 chr2 100 + 0 100 1\n10\n\n";
@@ -164,7 +164,7 @@ impl OwnedChainHeader {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::stream::{OwnedChainHeader, StreamingReader};
+    /// use chaintools::io::stream::{OwnedChainHeader, StreamingReader};
     /// use std::io::BufReader;
     ///
     /// let data = b"chain 1 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n10\n10\n";
@@ -216,7 +216,7 @@ impl OwnedChainHeader {
 ///
 /// ```ignore
 /// use std::io::BufReader;
-/// use chaintools::stream::StreamingReader;
+/// use chaintools::io::stream::StreamingReader;
 ///
 /// let data = b"chain 1 chr1 1000 + 0 1000 chr2 1000 + 0 1000 1\n10\n10\n";
 /// let reader = BufReader::new(&data[..]);
@@ -252,7 +252,7 @@ impl<R: BufRead> StreamingReader<R> {
     ///
     /// ```ignore
     /// use std::io::BufReader;
-    /// use chaintools::stream::StreamingReader;
+    /// use chaintools::io::stream::StreamingReader;
     ///
     /// let data = b"chain 1 chr1 1000 + 0 1000 chr2 1000 + 0 1000 1\n10\n10\n";
     /// let reader = BufReader::new(&data[..]);
@@ -282,7 +282,7 @@ impl<R: BufRead> StreamingReader<R> {
     ///
     /// ```ignore
     /// use std::io::BufReader;
-    /// use chaintools::stream::StreamingReader;
+    /// use chaintools::io::stream::StreamingReader;
     ///
     /// let data = b"chain 1 chr1 1000 + 0 1000 chr2 1000 + 0 1000 1\n10\n10\n";
     /// let reader = BufReader::new(&data[..]);
@@ -307,7 +307,7 @@ impl<R: BufRead> StreamingReader<R> {
     ///
     /// ```ignore
     /// use std::io::BufReader;
-    /// use chaintools::stream::StreamingReader;
+    /// use chaintools::io::stream::StreamingReader;
     ///
     /// let data = b"chain 1 chr1 1000 + 0 1000 chr2 1000 + 0 1000 1\n10\n10\n";
     /// let reader = BufReader::new(&data[..]);
@@ -339,7 +339,7 @@ impl<R: BufRead> StreamingReader<R> {
     ///
     /// ```ignore
     /// use std::io::BufReader;
-    /// use chaintools::stream::StreamingReader;
+    /// use chaintools::io::stream::StreamingReader;
     ///
     /// let data = b"chain 1 chr1 1000 + 0 1000 chr2 1000 + 0 1000 1\n10\n10\n\n";
     /// let reader = BufReader::new(&data[..]);
@@ -378,7 +378,7 @@ impl<R: BufRead> StreamingReader<R> {
     ///
     /// ```ignore
     /// use std::io::BufReader;
-    /// use chaintools::stream::StreamingReader;
+    /// use chaintools::io::stream::StreamingReader;
     ///
     /// let data = b"chain 1 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n10\n10\n";
     /// let reader = BufReader::new(&data[..]);
@@ -416,7 +416,7 @@ impl<R: BufRead> StreamingReader<R> {
     ///
     /// ```ignore
     /// use std::io::BufReader;
-    /// use chaintools::stream::{StreamingReader, StreamItem};
+    /// use chaintools::io::stream::{StreamingReader, StreamItem};
     ///
     /// let data = b"#meta\nchain 1 chr1 100 + 0 100 chr2 100 + 0 100 1\n10\n\n";
     /// let reader = BufReader::new(&data[..]);
@@ -464,7 +464,7 @@ impl<R: BufRead> StreamingReader<R> {
     ///
     /// ```ignore
     /// use std::io::BufReader;
-    /// use chaintools::stream::StreamingReader;
+    /// use chaintools::io::stream::StreamingReader;
     ///
     /// let data = b"chain 1 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n10\n10\n";
     /// let reader = BufReader::new(&data[..]);
@@ -515,7 +515,7 @@ impl<R: BufRead> StreamingReader<R> {
     ///
     /// ```ignore
     /// use std::io::BufReader;
-    /// use chaintools::stream::StreamingReader;
+    /// use chaintools::io::stream::StreamingReader;
     ///
     /// let data = b"chain 1 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n10\n10\n";
     /// let reader = BufReader::new(&data[..]);
@@ -557,7 +557,7 @@ impl<R: BufRead> StreamingReader<R> {
     ///
     /// ```ignore
     /// use std::io::BufReader;
-    /// use chaintools::stream::StreamingReader;
+    /// use chaintools::io::stream::StreamingReader;
     ///
     /// let data = b"chain 1 chr1 1000 + 0 1000 chr2 1000 + 0 1000 1\n";
     /// let reader = BufReader::new(&data[..]);
@@ -641,7 +641,7 @@ impl StreamingReader<Box<dyn BufRead>> {
     /// # Examples
     ///
     /// ```ignore
-    /// use chaintools::stream::StreamingReader;
+    /// use chaintools::io::stream::StreamingReader;
     ///
     /// // Open a plain text chain file
     /// let mut reader = StreamingReader::from_path("example.chain")?;
@@ -695,7 +695,7 @@ impl StreamingReader<Box<dyn BufRead>> {
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::stream::slice_name;
+/// use chaintools::io::stream::slice_name;
 ///
 /// let line = b"chain 1 chr1 1000 + 0 1000 chr2 1000 + 0 1000 1";
 /// let line_start = 100; // Assume this line starts at byte 100 in input

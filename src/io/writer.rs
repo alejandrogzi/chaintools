@@ -22,7 +22,7 @@ use crate::{Block, ChainError, OwnedChain, OwnedChainHeader, Strand};
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::{stream::OwnedChain, writer::write_chain_dense};
+/// use chaintools::{io::stream::OwnedChain, io::writer::write_chain_dense};
 /// use std::io::Cursor;
 ///
 /// let chain = OwnedChain {
@@ -66,7 +66,7 @@ pub fn write_chain_dense<W: Write>(writer: &mut W, chain: &OwnedChain) -> Result
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::{stream::OwnedChainHeader, writer::write_chain_header};
+/// use chaintools::{io::stream::OwnedChainHeader, io::writer::write_chain_header};
 /// use std::io::Cursor;
 ///
 /// let header = OwnedChainHeader {
@@ -134,7 +134,7 @@ where
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::{Block, writer::write_dense_blocks};
+/// use chaintools::{Block, io::writer::write_dense_blocks};
 /// use std::io::Cursor;
 ///
 /// let blocks = vec![
@@ -166,7 +166,7 @@ pub fn write_dense_blocks<W: Write>(writer: &mut W, blocks: &[Block]) -> Result<
 /// # Examples
 ///
 /// ```ignore
-/// use chaintools::writer::ChainLike;
+/// use chaintools::io::writer::ChainLike;
 /// use chaintools::{Strand, Block};
 ///
 /// struct MyChain {

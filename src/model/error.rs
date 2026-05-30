@@ -37,6 +37,12 @@ pub enum ChainError {
     Unsupported {
         msg: Cow<'static, str>,
     },
+    /// A sequence referenced by a chain (e.g. a chromosome) is absent from the
+    /// reference or query input. Surfaced distinctly so callers can choose to
+    /// skip the affected chains rather than abort.
+    MissingSequence {
+        name: Cow<'static, str>,
+    },
 }
 
 impl From<std::io::Error> for ChainError {
@@ -77,6 +83,9 @@ impl fmt::Display for ChainError {
                 write!(f, "format error at byte {}: {}", offset, msg)
             }
             ChainError::Unsupported { msg } => write!(f, "unsupported: {}", msg),
+            ChainError::MissingSequence { name } => {
+                write!(f, "missing sequence: {}", name)
+            }
         }
     }
 }

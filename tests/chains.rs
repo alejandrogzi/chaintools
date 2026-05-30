@@ -1,4 +1,4 @@
-use chaintools::storage::{ByteSlice, SharedBytes};
+use chaintools::io::storage::{ByteSlice, SharedBytes};
 use chaintools::{Chain, Strand};
 
 #[test]

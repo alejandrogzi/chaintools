@@ -678,7 +678,7 @@ impl LoadedInput {
             }
             #[cfg(not(feature = "gzip"))]
             {
-                return Err(CliError::Chain(chaintools::storage::gzip_feature_error()));
+                return Err(CliError::Chain(chaintools::io::storage::gzip_feature_error()));
             }
         }
 
@@ -740,7 +740,7 @@ impl LoadedInput {
             }
             #[cfg(not(feature = "gzip"))]
             {
-                return Err(CliError::Chain(chaintools::storage::gzip_feature_error()));
+                return Err(CliError::Chain(chaintools::io::storage::gzip_feature_error()));
             }
         }
 
