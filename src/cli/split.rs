@@ -66,14 +66,6 @@ pub struct SplitArgs {
 }
 
 impl SplitArgs {
-    pub(crate) fn writes_to_stdout(&self) -> bool {
-        false
-    }
-
-    pub(crate) fn default_log_level(&self) -> log::LevelFilter {
-        log::LevelFilter::Info
-    }
-
     fn mode(&self) -> SplitMode {
         if let Some(files) = self.files {
             SplitMode::Files(files)

@@ -89,20 +89,6 @@ pub struct AntiRepeatArgs {
     no_check_score: i64,
 }
 
-impl AntiRepeatArgs {
-    pub(crate) fn writes_to_stdout(&self) -> bool {
-        self.out_chain.is_none()
-    }
-
-    pub(crate) fn default_log_level(&self) -> log::LevelFilter {
-        if self.out_chain.is_some() {
-            log::LevelFilter::Info
-        } else {
-            log::LevelFilter::Off
-        }
-    }
-}
-
 /// Runs the anti-repeat subcommand.
 ///
 /// Filters chain alignments dominated by repeats or degenerate DNA
@@ -140,6 +126,27 @@ where
     E: Write,
 {
     validate_output_args(&args)?;
+    super::ensure_inputs_exist(
+        &[("reference", &args.reference), ("query", &args.query)],
+        &[("input chain", args.chain.as_deref())],
+    )?;
+
+    log::info!(
+        "anti-repeat: reference={}, query={}, min_score={}, no_check_score={}",
+        args.reference.display(),
+        args.query.display(),
+        args.min_score,
+        args.no_check_score
+    );
+    let input_desc = args
+        .chain
+        .as_deref()
+        .map_or_else(|| "<stdin>".to_owned(), |path| path.display().to_string());
+    let output_desc = args
+        .out_chain
+        .as_deref()
+        .map_or_else(|| "<stdout>".to_owned(), |path| path.display().to_string());
+    log::info!("reading chains from {input_desc}, writing to {output_desc}");
 
     let engine = AntiRepeatEngine::new(
         &args.reference,
@@ -249,11 +256,12 @@ fn process_stream<R: BufRead, W: Write>(
 ) -> Result<(), CliError> {
     let mut pending = Vec::new();
     let mut pending_blocks = 0usize;
+    let mut stats = AntiRepeatStats::default();
 
     while let Some(item) = reader.next_item()? {
         match item {
             StreamItem::MetaLine(line) => {
-                flush_pending(&mut pending, engine, writer)?;
+                flush_pending(&mut pending, engine, writer, &mut stats)?;
                 pending_blocks = 0;
                 writer.write_all(&line)?;
                 writer.write_all(b"\n")?;
@@ -263,15 +271,33 @@ fn process_stream<R: BufRead, W: Write>(
                 pending_blocks = pending_blocks.saturating_add(blocks.len());
                 pending.push(header.into_chain(blocks));
                 if pending.len() >= MAX_BATCH_CHAINS || pending_blocks >= MAX_BATCH_BLOCKS {
-                    flush_pending(&mut pending, engine, writer)?;
+                    flush_pending(&mut pending, engine, writer, &mut stats)?;
                     pending_blocks = 0;
                 }
             }
         }
     }
 
-    flush_pending(&mut pending, engine, writer)?;
+    flush_pending(&mut pending, engine, writer, &mut stats)?;
+
+    super::log_summary(
+        "anti-repeat",
+        &[
+            ("read", stats.read),
+            ("kept", stats.kept),
+            ("dropped", stats.read - stats.kept),
+            ("batches", stats.batches),
+        ],
+    );
     Ok(())
+}
+
+/// Running counts accumulated while streaming through the anti-repeat engine.
+#[derive(Default)]
+struct AntiRepeatStats {
+    read: u64,
+    kept: u64,
+    batches: u64,
 }
 
 /// Flushes pending chains through the anti-repeat engine.
@@ -305,15 +331,27 @@ fn flush_pending<W: Write>(
     pending: &mut Vec<OwnedChain>,
     engine: &AntiRepeatEngine,
     writer: &mut W,
+    stats: &mut AntiRepeatStats,
 ) -> Result<(), CliError> {
     if pending.is_empty() {
         return Ok(());
     }
 
     let batch = std::mem::take(pending);
-    for chain in filter_batch(batch, engine)? {
-        write_chain_dense(writer, &chain)?;
+    let read = batch.len() as u64;
+    let kept_chains = filter_batch(batch, engine)?;
+    let kept = kept_chains.len() as u64;
+    for chain in &kept_chains {
+        write_chain_dense(writer, chain)?;
     }
+
+    stats.read += read;
+    stats.kept += kept;
+    stats.batches += 1;
+    log::debug!(
+        "flushed batch: {read} read, {kept} kept, {} dropped",
+        read - kept
+    );
     Ok(())
 }
 
@@ -562,14 +600,22 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_reference_or_query_paths() {
+        // The files exist (so the existence pre-check passes) but the reference
+        // has an unsupported extension, exercising format detection.
+        let temp = TempDir::new();
+        let reference = temp.path().join("reference.txt");
+        let query = temp.path().join("query.2bit");
+        write_text(&reference, "not a sequence\n");
+        write_twobit(&query, ">chr1\nACGT\n");
+
         let mut stdin = Cursor::new(Vec::<u8>::new());
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
         let err = run(
             AntiRepeatArgs {
-                reference: PathBuf::from("reference.txt"),
-                query: PathBuf::from("query.2bit"),
+                reference,
+                query,
                 chain: None,
                 out_chain: None,
                 gzip: false,
@@ -583,6 +629,93 @@ mod tests {
         .expect_err("unsupported reference should be rejected");
 
         assert!(err.to_string().contains("unsupported sequence format"));
+    }
+
+    #[test]
+    fn missing_reference_is_rejected_up_front() {
+        let temp = TempDir::new();
+        let query = temp.path().join("query.2bit");
+        write_twobit(&query, ">chr1\nACGT\n");
+
+        let mut stdin = Cursor::new(Vec::<u8>::new());
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let err = run(
+            AntiRepeatArgs {
+                reference: temp.path().join("missing.2bit"),
+                query,
+                chain: None,
+                out_chain: None,
+                gzip: false,
+                min_score: 5_000,
+                no_check_score: 200_000,
+            },
+            &mut stdin,
+            &mut stdout,
+            &mut stderr,
+        )
+        .expect_err("missing reference should be rejected up front");
+
+        assert!(err.to_string().contains("reference file does not exist"));
+        assert!(stdout.is_empty(), "no output before the pre-check fails");
+    }
+
+    #[test]
+    fn missing_query_is_rejected_up_front() {
+        let temp = TempDir::new();
+        let reference = temp.path().join("reference.2bit");
+        write_twobit(&reference, ">chr1\nACGT\n");
+
+        let mut stdin = Cursor::new(Vec::<u8>::new());
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let err = run(
+            AntiRepeatArgs {
+                reference,
+                query: temp.path().join("missing.2bit"),
+                chain: None,
+                out_chain: None,
+                gzip: false,
+                min_score: 5_000,
+                no_check_score: 200_000,
+            },
+            &mut stdin,
+            &mut stdout,
+            &mut stderr,
+        )
+        .expect_err("missing query should be rejected up front");
+
+        assert!(err.to_string().contains("query file does not exist"));
+    }
+
+    #[test]
+    fn missing_input_chain_is_rejected_up_front() {
+        let temp = TempDir::new();
+        let reference = temp.path().join("reference.2bit");
+        let query = temp.path().join("query.2bit");
+        write_twobit(&reference, ">chr1\nACGT\n");
+        write_twobit(&query, ">chr1\nACGT\n");
+
+        let mut stdin = Cursor::new(Vec::<u8>::new());
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let err = run(
+            AntiRepeatArgs {
+                reference,
+                query,
+                chain: Some(temp.path().join("missing.chain")),
+                out_chain: None,
+                gzip: false,
+                min_score: 5_000,
+                no_check_score: 200_000,
+            },
+            &mut stdin,
+            &mut stdout,
+            &mut stderr,
+        )
+        .expect_err("missing input chain should be rejected up front");
+
+        assert!(err.to_string().contains("input chain file does not exist"));
     }
 
     #[test]
