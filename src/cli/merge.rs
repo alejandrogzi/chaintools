@@ -89,14 +89,6 @@ pub struct MergeArgs {
 }
 
 impl MergeArgs {
-    pub(crate) fn writes_to_stdout(&self) -> bool {
-        false
-    }
-
-    pub(crate) fn default_log_level(&self) -> log::LevelFilter {
-        log::LevelFilter::Info
-    }
-
     fn max_in_memory_bytes(&self) -> Result<u64, CliError> {
         if !self.max_gb.is_finite() {
             return Err(CliError::Message(
@@ -187,21 +179,42 @@ where
     let inputs = collect_input_paths(&args)?;
     validate_input_paths(&args.out_chain, &inputs)?;
 
+    log::info!(
+        "merge: {} input file(s) -> {}",
+        inputs.len(),
+        args.out_chain.display()
+    );
+
     if let Some(sort_by) = args.sort_by {
+        log::info!("merging sorted by {sort_by:?}");
         let max_in_memory_bytes = args.max_in_memory_bytes()?;
         let temp_dir = output_directory(&args.out_chain);
         let mut accumulator =
             SortAccumulator::new(sort_by.criterion(), max_in_memory_bytes, &temp_dir);
 
         for path in &inputs {
+            log::debug!("reading {}", path.display());
             let mut reader = StreamingReader::from_path(path)?;
             accumulator.push_stream(&mut reader)?;
         }
 
+        // Capture counts before `finish` consumes the accumulator.
+        let chains = accumulator.chains_pushed();
+        let runs_spilled = accumulator.runs_spilled();
         let (metadata, sorted) = accumulator.finish()?;
         emit_sorted_output(&args, &metadata, sorted, sort_by.criterion())?;
+        super::log_summary(
+            "merge",
+            &[
+                ("files", inputs.len() as u64),
+                ("chains", chains),
+                ("runs_spilled", runs_spilled),
+            ],
+        );
     } else {
+        log::info!("concatenating {} input(s) (unsorted)", inputs.len());
         emit_unsorted_output(&args, &inputs)?;
+        super::log_summary("merge", &[("files", inputs.len() as u64)]);
     }
 
     Ok(())

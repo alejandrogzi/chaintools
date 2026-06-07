@@ -114,20 +114,6 @@ pub struct ScoreArgs {
     skip_missing_chains: bool,
 }
 
-impl ScoreArgs {
-    pub(crate) fn writes_to_stdout(&self) -> bool {
-        self.out_chain.is_none()
-    }
-
-    pub(crate) fn default_log_level(&self) -> log::LevelFilter {
-        if self.out_chain.is_some() {
-            log::LevelFilter::Info
-        } else {
-            log::LevelFilter::Off
-        }
-    }
-}
-
 /// Runs the score subcommand.
 ///
 /// Recomputes chain scores from reference/query sequence and filters by
@@ -155,6 +141,36 @@ where
     E: Write,
 {
     validate_output_args(&args)?;
+    super::ensure_inputs_exist(
+        &[("reference", &args.reference), ("query", &args.query)],
+        &[
+            ("input chain", args.chain.as_deref()),
+            ("score scheme", args.score_scheme.as_deref()),
+        ],
+    )?;
+
+    log::info!(
+        "score: reference={}, query={}, min_score={}, mode={}, scheme={}, gap={}",
+        args.reference.display(),
+        args.query.display(),
+        args.min_score,
+        if args.sort_by_score {
+            "sort-by-score"
+        } else {
+            "streaming"
+        },
+        args.score_scheme.as_deref().map_or("default", |_| "file"),
+        args.linear_gap.as_deref().unwrap_or("loose"),
+    );
+    let input_desc = args
+        .chain
+        .as_deref()
+        .map_or_else(|| "<stdin>".to_owned(), |path| path.display().to_string());
+    let output_desc = args
+        .out_chain
+        .as_deref()
+        .map_or_else(|| "<stdout>".to_owned(), |path| path.display().to_string());
+    log::info!("reading chains from {input_desc}, writing to {output_desc}");
 
     let matrix = match &args.score_scheme {
         Some(path) => ScoreMatrix::from_blastz_file(path)?,
@@ -231,6 +247,7 @@ fn process_stream<R: BufRead, W: Write>(
     args: &ScoreArgs,
     skipped: &mut Vec<SkippedChain>,
 ) -> Result<(), CliError> {
+    let mut stats = ScoreStats::default();
     if args.sort_by_score {
         process_sorted(
             reader,
@@ -239,7 +256,8 @@ fn process_stream<R: BufRead, W: Write>(
             args.min_score,
             args.skip_missing_chains,
             skipped,
-        )
+            &mut stats,
+        )?;
     } else {
         process_streaming(
             reader,
@@ -248,8 +266,46 @@ fn process_stream<R: BufRead, W: Write>(
             args.min_score,
             args.skip_missing_chains,
             skipped,
-        )
+            &mut stats,
+        )?;
     }
+
+    super::log_summary(
+        "score",
+        &[
+            ("read", stats.read),
+            ("scored", stats.scored),
+            ("kept", stats.kept),
+            ("below_min", stats.below_min),
+            ("missing", skipped.len() as u64),
+            ("batches", stats.batches),
+        ],
+    );
+    Ok(())
+}
+
+/// Running counts accumulated while rescoring chains.
+#[derive(Default)]
+struct ScoreStats {
+    read: u64,
+    scored: u64,
+    kept: u64,
+    below_min: u64,
+    batches: u64,
+}
+
+/// Records one rescored batch into `stats` and logs a per-batch DEBUG line.
+fn record_batch(stats: &mut ScoreStats, read: u64, scored: u64, kept: u64) {
+    stats.read += read;
+    stats.scored += scored;
+    stats.kept += kept;
+    stats.below_min += scored - kept;
+    stats.batches += 1;
+    log::debug!(
+        "scored batch: {read} read, {scored} scored, {kept} kept, {} below min, {} missing",
+        scored - kept,
+        read - scored
+    );
 }
 
 /// Streaming, input-order processing (the default, fastest path).
@@ -264,6 +320,7 @@ fn process_streaming<R: BufRead, W: Write>(
     min_score: i64,
     skip_missing: bool,
     skipped: &mut Vec<SkippedChain>,
+    stats: &mut ScoreStats,
 ) -> Result<(), CliError> {
     let mut pending = Vec::new();
     let mut pending_blocks = 0usize;
@@ -278,6 +335,7 @@ fn process_streaming<R: BufRead, W: Write>(
                     min_score,
                     skip_missing,
                     skipped,
+                    stats,
                 )?;
                 pending_blocks = 0;
                 writer.write_all(&line)?;
@@ -295,6 +353,7 @@ fn process_streaming<R: BufRead, W: Write>(
                         min_score,
                         skip_missing,
                         skipped,
+                        stats,
                     )?;
                     pending_blocks = 0;
                 }
@@ -309,6 +368,7 @@ fn process_streaming<R: BufRead, W: Write>(
         min_score,
         skip_missing,
         skipped,
+        stats,
     )?;
     Ok(())
 }
@@ -325,6 +385,7 @@ fn process_sorted<R: BufRead, W: Write>(
     min_score: i64,
     skip_missing: bool,
     skipped: &mut Vec<SkippedChain>,
+    stats: &mut ScoreStats,
 ) -> Result<(), CliError> {
     let mut comments: Vec<Vec<u8>> = Vec::new();
     let mut kept: Vec<OwnedChain> = Vec::new();
@@ -341,6 +402,7 @@ fn process_sorted<R: BufRead, W: Write>(
                     &mut kept,
                     skip_missing,
                     skipped,
+                    stats,
                 )?;
                 pending_blocks = 0;
                 comments.push(line);
@@ -357,6 +419,7 @@ fn process_sorted<R: BufRead, W: Write>(
                         &mut kept,
                         skip_missing,
                         skipped,
+                        stats,
                     )?;
                     pending_blocks = 0;
                 }
@@ -370,6 +433,7 @@ fn process_sorted<R: BufRead, W: Write>(
         &mut kept,
         skip_missing,
         skipped,
+        stats,
     )?;
 
     for line in &comments {
@@ -407,15 +471,21 @@ fn flush_pending<W: Write>(
     min_score: i64,
     skip_missing: bool,
     skipped: &mut Vec<SkippedChain>,
+    stats: &mut ScoreStats,
 ) -> Result<(), CliError> {
     if pending.is_empty() {
         return Ok(());
     }
     let batch = std::mem::take(pending);
+    let read = batch.len() as u64;
+    let mut scored = 0u64;
+    let mut kept = 0u64;
     for outcome in score_batch(batch, scorer, skip_missing)? {
         match outcome {
             ChainScore::Scored(chain) => {
+                scored += 1;
                 if chain.score >= min_score {
+                    kept += 1;
                     write_chain_dense(writer, &chain)?;
                 }
             }
@@ -424,6 +494,7 @@ fn flush_pending<W: Write>(
             }
         }
     }
+    record_batch(stats, read, scored, kept);
     Ok(())
 }
 
@@ -435,15 +506,21 @@ fn collect_pending(
     kept: &mut Vec<OwnedChain>,
     skip_missing: bool,
     skipped: &mut Vec<SkippedChain>,
+    stats: &mut ScoreStats,
 ) -> Result<(), CliError> {
     if pending.is_empty() {
         return Ok(());
     }
     let batch = std::mem::take(pending);
+    let read = batch.len() as u64;
+    let mut scored = 0u64;
+    let mut kept_count = 0u64;
     for outcome in score_batch(batch, scorer, skip_missing)? {
         match outcome {
             ChainScore::Scored(chain) => {
+                scored += 1;
                 if chain.score >= min_score {
+                    kept_count += 1;
                     kept.push(chain);
                 }
             }
@@ -452,6 +529,7 @@ fn collect_pending(
             }
         }
     }
+    record_batch(stats, read, scored, kept_count);
     Ok(())
 }
 
@@ -687,6 +765,43 @@ mod tests {
     }
 
     #[test]
+    fn missing_reference_is_rejected_up_front() {
+        let temp = TempDir::new();
+        let query = temp.path().join("q.2bit");
+        write_twobit(&query, ">chr1\nACGT\n");
+
+        let mut args = base_args(temp.path().join("missing.2bit"), query);
+        args.min_score = 1;
+        let mut stdin = Cursor::new(Vec::<u8>::new());
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let err = run(args, &mut stdin, &mut stdout, &mut stderr)
+            .expect_err("missing reference should be rejected up front");
+
+        assert!(err.to_string().contains("reference file does not exist"));
+        assert!(stdout.is_empty(), "no output before the pre-check fails");
+    }
+
+    #[test]
+    fn missing_score_scheme_is_rejected_up_front() {
+        let temp = TempDir::new();
+        let reference = temp.path().join("t.2bit");
+        let query = temp.path().join("q.2bit");
+        write_twobit(&reference, ">chr1\nACGT\n");
+        write_twobit(&query, ">chr1\nACGT\n");
+
+        let mut args = base_args(reference, query);
+        args.score_scheme = Some(temp.path().join("missing_matrix.txt"));
+        let mut stdin = Cursor::new(Vec::<u8>::new());
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let err = run(args, &mut stdin, &mut stdout, &mut stderr)
+            .expect_err("missing score scheme should be rejected up front");
+
+        assert!(err.to_string().contains("score scheme file does not exist"));
+    }
+
+    #[test]
     fn parses_minimal_args_with_defaults() {
         let cli =
             Harness::try_parse_from(["chaintools", "--reference", "t.2bit", "--query", "q.2bit"])
@@ -830,14 +945,22 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_reference_path() {
+        // The files exist (so the existence pre-check passes) but the reference
+        // has an unsupported extension, exercising format detection.
+        let temp = TempDir::new();
+        let reference = temp.path().join("reference.txt");
+        let query = temp.path().join("query.2bit");
+        fs::write(&reference, "not a sequence\n").expect("write reference");
+        write_twobit(&query, ">chr1\nACGT\n");
+
         let mut stdin = Cursor::new(Vec::<u8>::new());
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
         let err = run(
             ScoreArgs {
-                reference: PathBuf::from("reference.txt"),
-                query: PathBuf::from("query.2bit"),
+                reference,
+                query,
                 chain: None,
                 out_chain: None,
                 gzip: false,

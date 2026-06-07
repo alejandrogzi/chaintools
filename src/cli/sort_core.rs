@@ -120,6 +120,8 @@ pub(super) struct SortAccumulator<'a> {
     runs: Vec<TempRun>,
     chunk_bytes: u64,
     next_temp_id: u64,
+    chains_pushed: u64,
+    runs_spilled: u64,
 }
 
 impl<'a> SortAccumulator<'a> {
@@ -138,6 +140,8 @@ impl<'a> SortAccumulator<'a> {
             runs: Vec::new(),
             chunk_bytes: 0,
             next_temp_id: 0,
+            chains_pushed: 0,
+            runs_spilled: 0,
         }
     }
 
@@ -157,14 +161,21 @@ impl<'a> SortAccumulator<'a> {
                         .chunk_bytes
                         .saturating_add(estimate_chain_bytes(&chain));
                     self.records.push(chain);
+                    self.chains_pushed += 1;
 
                     if self.chunk_bytes >= self.max_in_memory_bytes && !self.records.is_empty() {
+                        let spilled = self.records.len();
                         self.runs.push(spill_records_to_run(
                             &mut self.records,
                             self.sort_by,
                             self.temp_dir,
                             &mut self.next_temp_id,
                         )?);
+                        self.runs_spilled += 1;
+                        log::debug!(
+                            "spilled sorted run #{} ({spilled} chains; memory budget exceeded)",
+                            self.runs_spilled
+                        );
                         self.chunk_bytes = 0;
                     }
                 }
@@ -177,19 +188,27 @@ impl<'a> SortAccumulator<'a> {
 
     pub(super) fn finish(mut self) -> Result<(Vec<Vec<u8>>, SortedInput), CliError> {
         if self.runs.is_empty() {
+            log::debug!("sort path: in-memory ({} chains)", self.records.len());
             sort_records(&mut self.records, self.sort_by);
             return Ok((self.metadata, SortedInput::InMemory(self.records)));
         }
 
         if !self.records.is_empty() {
+            let spilled = self.records.len();
             self.runs.push(spill_records_to_run(
                 &mut self.records,
                 self.sort_by,
                 self.temp_dir,
                 &mut self.next_temp_id,
             )?);
+            self.runs_spilled += 1;
+            log::debug!(
+                "spilled final sorted run #{} ({spilled} chains)",
+                self.runs_spilled
+            );
         }
 
+        log::debug!("sort path: external merge of {} runs", self.runs.len());
         let reduced = reduce_runs(
             self.runs,
             self.sort_by,
@@ -197,6 +216,17 @@ impl<'a> SortAccumulator<'a> {
             &mut self.next_temp_id,
         )?;
         Ok((self.metadata, SortedInput::Runs(reduced)))
+    }
+
+    /// Number of chains read into the accumulator.
+    pub(super) fn chains_pushed(&self) -> u64 {
+        self.chains_pushed
+    }
+
+    /// Number of sorted runs spilled to disk (`0` when the sort stayed fully in
+    /// memory).
+    pub(super) fn runs_spilled(&self) -> u64 {
+        self.runs_spilled
     }
 }
 
@@ -354,6 +384,10 @@ fn reduce_runs(
     next_temp_id: &mut u64,
 ) -> Result<Vec<TempRun>, CliError> {
     while runs.len() > MAX_OPEN_RUNS {
+        log::debug!(
+            "reducing {} sorted runs in groups of {MAX_OPEN_RUNS}",
+            runs.len()
+        );
         let old_runs = std::mem::take(&mut runs);
         let mut next_runs = Vec::new();
         let mut groups = old_runs.into_iter();

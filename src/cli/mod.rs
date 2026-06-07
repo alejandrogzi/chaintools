@@ -11,6 +11,7 @@ pub mod split;
 
 use std::fmt;
 use std::io::{self, BufRead, Write};
+use std::path::Path;
 
 use chaintools::ChainError;
 use clap::{Parser, Subcommand};
@@ -167,7 +168,7 @@ where
     E: Write,
 {
     configure_threads(cli.threads)?;
-    let level = resolve_log_level(&cli.command, cli.level)?;
+    let level = resolve_log_level(cli.level);
     configure_logging(level)?;
 
     log::info!(
@@ -190,71 +191,106 @@ where
     result
 }
 
-/// Resolves the log level based on command and requested level.
-fn resolve_log_level(
-    command: &Command,
-    requested: Option<LevelFilter>,
-) -> Result<LevelFilter, CliError> {
-    match command {
-        Command::AntiRepeat(args) if args.writes_to_stdout() => {
-            if requested.is_some_and(|level| level != LevelFilter::Off) {
-                return Err(CliError::Message(
-                    "--level requires --out-chain when anti-repeat writes chain output to stdout"
-                        .to_owned(),
-                ));
-            }
-            Ok(LevelFilter::Off)
+/// Resolves the effective log level for a run.
+///
+/// Logging is verbose by default: every tool defaults to `Info`, regardless of
+/// whether chains are written to a file or to standard output. Logs are emitted
+/// on stderr (via `simple_logger`), so they never corrupt the stdout chain
+/// stream. An explicit `--level` is always honored; `--level off` silences all
+/// logging.
+///
+/// # Arguments
+///
+/// * `requested` - The `--level` value, if the user supplied one
+///
+/// # Output
+///
+/// Returns the `LevelFilter` to install
+fn resolve_log_level(requested: Option<LevelFilter>) -> LevelFilter {
+    requested.unwrap_or(LevelFilter::Info)
+}
+
+/// Emits a uniform end-of-run summary line at the `Info` level.
+///
+/// Produces `"{tool} complete: k1=v1, k2=v2, ..."` so every subcommand reports
+/// its final counts in a consistent shape.
+///
+/// # Arguments
+///
+/// * `tool` - Subcommand name (e.g. `"score"`)
+/// * `fields` - Ordered `(label, value)` pairs to render
+///
+/// # Examples
+///
+/// ```ignore
+/// log_summary("score", &[("read", 1200), ("kept", 980), ("dropped", 220)]);
+/// // INFO  score complete: read=1200, kept=980, dropped=220
+/// ```
+pub(crate) fn log_summary(tool: &str, fields: &[(&str, u64)]) {
+    if !log::log_enabled!(log::Level::Info) {
+        return;
+    }
+    let rendered = fields
+        .iter()
+        .map(|(label, value)| format!("{label}={value}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    log::info!("{tool} complete: {rendered}");
+}
+
+/// Verifies that required and optionally-provided input files exist.
+///
+/// Runs as an upfront pre-flight check so a missing input fails immediately
+/// with a clear message, before any engine is built, any standard input is
+/// read, or any output is written. Uses [`Path::try_exists`] so a permission
+/// or I/O error while checking is reported distinctly from a genuine absence.
+///
+/// # Arguments
+///
+/// * `required` - `(label, path)` pairs that must exist
+/// * `optional` - `(label, maybe_path)` pairs; `None` means "use a default such
+///   as standard input" and is skipped
+///
+/// # Output
+///
+/// Returns `Ok(())` if every present path exists, or `Err(CliError::Message)`
+/// naming the first offending file.
+///
+/// # Examples
+///
+/// ```ignore
+/// ensure_inputs_exist(
+///     &[("reference", &args.reference), ("query", &args.query)],
+///     &[("input chain", args.chain.as_deref())],
+/// )?;
+/// ```
+pub(crate) fn ensure_inputs_exist(
+    required: &[(&str, &Path)],
+    optional: &[(&str, Option<&Path>)],
+) -> Result<(), CliError> {
+    for (label, path) in required {
+        check_input_exists(label, path)?;
+    }
+    for (label, path) in optional {
+        if let Some(path) = path {
+            check_input_exists(label, path)?;
         }
-        Command::AntiRepeat(args) => Ok(requested.unwrap_or_else(|| args.default_log_level())),
-        Command::Filter(args) if args.writes_to_stdout() => {
-            if requested.is_some_and(|level| level != LevelFilter::Off) {
-                return Err(CliError::Message(
-                    "--level requires --out-chain when filter writes chain output to stdout"
-                        .to_owned(),
-                ));
-            }
-            Ok(LevelFilter::Off)
-        }
-        Command::Filter(args) => Ok(requested.unwrap_or_else(|| args.default_log_level())),
-        Command::Merge(args) if args.writes_to_stdout() => {
-            if requested.is_some_and(|level| level != LevelFilter::Off) {
-                return Err(CliError::Message(
-                    "--level requires --out-chain when merge writes chain output to stdout"
-                        .to_owned(),
-                ));
-            }
-            Ok(LevelFilter::Off)
-        }
-        Command::Merge(args) => Ok(requested.unwrap_or_else(|| args.default_log_level())),
-        Command::Score(args) if args.writes_to_stdout() => {
-            if requested.is_some_and(|level| level != LevelFilter::Off) {
-                return Err(CliError::Message(
-                    "--level requires --out-chain when score writes chain output to stdout"
-                        .to_owned(),
-                ));
-            }
-            Ok(LevelFilter::Off)
-        }
-        Command::Score(args) => Ok(requested.unwrap_or_else(|| args.default_log_level())),
-        Command::Split(args) if args.writes_to_stdout() => {
-            if requested.is_some_and(|level| level != LevelFilter::Off) {
-                return Err(CliError::Message(
-                    "--level requires --outdir when split writes chain output to stdout".to_owned(),
-                ));
-            }
-            Ok(LevelFilter::Off)
-        }
-        Command::Split(args) => Ok(requested.unwrap_or_else(|| args.default_log_level())),
-        Command::Sort(args) if args.writes_to_stdout() => {
-            if requested.is_some_and(|level| level != LevelFilter::Off) {
-                return Err(CliError::Message(
-                    "--level requires --out-chain when sort writes chain output to stdout"
-                        .to_owned(),
-                ));
-            }
-            Ok(LevelFilter::Off)
-        }
-        Command::Sort(args) => Ok(requested.unwrap_or_else(|| args.default_log_level())),
+    }
+    Ok(())
+}
+
+/// Checks that a single input file exists, mapping the outcome to a `CliError`.
+fn check_input_exists(label: &str, path: &Path) -> Result<(), CliError> {
+    match path.try_exists() {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(CliError::Message(format!(
+            "{label} file does not exist: {}",
+            path.display()
+        ))),
+        Err(err) => Err(CliError::Message(format!(
+            "cannot access {label} file {}: {err}",
+            path.display()
+        ))),
     }
 }
 
@@ -338,176 +374,55 @@ mod tests {
     }
 
     #[test]
-    fn stdout_filter_defaults_logging_off() {
+    fn defaults_to_info_when_unspecified() {
         let cli = Cli::try_parse_from(["chaintools", "filter"]).expect("args parse");
-
-        assert_eq!(
-            resolve_log_level(&cli.command, cli.level).unwrap(),
-            LevelFilter::Off
-        );
+        assert_eq!(resolve_log_level(cli.level), LevelFilter::Info);
     }
 
     #[test]
-    fn stdout_filter_rejects_requested_logging() {
+    fn honors_requested_level() {
         let cli =
-            Cli::try_parse_from(["chaintools", "--level", "info", "filter"]).expect("args parse");
-
-        let err = resolve_log_level(&cli.command, cli.level)
-            .expect_err("stdout logging should be rejected");
-        assert!(
-            err.to_string()
-                .contains("--level requires --out-chain when filter writes chain output to stdout")
-        );
+            Cli::try_parse_from(["chaintools", "--level", "debug", "filter"]).expect("args parse");
+        assert_eq!(resolve_log_level(cli.level), LevelFilter::Debug);
     }
 
     #[test]
-    fn stdout_filter_allows_explicit_off() {
+    fn explicit_off_silences_logging() {
         let cli =
             Cli::try_parse_from(["chaintools", "--level", "off", "filter"]).expect("args parse");
-
-        assert_eq!(
-            resolve_log_level(&cli.command, cli.level).unwrap(),
-            LevelFilter::Off
-        );
+        assert_eq!(resolve_log_level(cli.level), LevelFilter::Off);
     }
 
     #[test]
-    fn out_chain_filter_defaults_logging_to_info() {
-        let cli = Cli::try_parse_from(["chaintools", "filter", "--out-chain", "out.chain"])
-            .expect("args parse");
-
-        assert_eq!(
-            resolve_log_level(&cli.command, cli.level).unwrap(),
-            LevelFilter::Info
-        );
-    }
-
-    #[test]
-    fn out_chain_filter_uses_requested_logging_level() {
+    fn stdout_output_still_defaults_to_info() {
+        // Verbose-by-default: a tool writing chains to stdout (no --out-chain)
+        // still logs at Info on stderr; previously this was forced Off.
         let cli = Cli::try_parse_from([
             "chaintools",
-            "--level",
-            "debug",
-            "filter",
-            "--out-chain",
-            "out.chain",
+            "anti-repeat",
+            "--reference",
+            "target.2bit",
+            "--query",
+            "query.2bit",
         ])
         .expect("args parse");
-
-        assert_eq!(
-            resolve_log_level(&cli.command, cli.level).unwrap(),
-            LevelFilter::Debug
-        );
+        assert_eq!(resolve_log_level(cli.level), LevelFilter::Info);
     }
 
     #[test]
-    fn stdout_sort_defaults_logging_off() {
-        let cli = Cli::try_parse_from(["chaintools", "sort"]).expect("args parse");
-
-        assert_eq!(
-            resolve_log_level(&cli.command, cli.level).unwrap(),
-            LevelFilter::Off
-        );
-    }
-
-    #[test]
-    fn stdout_sort_rejects_requested_logging() {
+    fn stdout_output_honors_requested_level() {
+        // This combination (stdout output + explicit --level) used to be
+        // rejected; verbose-by-default now allows it.
         let cli =
             Cli::try_parse_from(["chaintools", "--level", "info", "sort"]).expect("args parse");
-
-        let err = resolve_log_level(&cli.command, cli.level)
-            .expect_err("stdout logging should be rejected");
-        assert!(
-            err.to_string()
-                .contains("--level requires --out-chain when sort writes chain output to stdout")
-        );
+        assert_eq!(resolve_log_level(cli.level), LevelFilter::Info);
     }
 
     #[test]
-    fn out_chain_sort_defaults_logging_to_info() {
-        let cli = Cli::try_parse_from(["chaintools", "sort", "--out-chain", "out.chain"])
+    fn out_chain_output_defaults_to_info() {
+        let cli = Cli::try_parse_from(["chaintools", "filter", "--out-chain", "out.chain"])
             .expect("args parse");
-
-        assert_eq!(
-            resolve_log_level(&cli.command, cli.level).unwrap(),
-            LevelFilter::Info
-        );
-    }
-
-    #[test]
-    fn out_chain_merge_defaults_logging_to_info() {
-        let cli = Cli::try_parse_from([
-            "chaintools",
-            "merge",
-            "--chains",
-            "a.chain",
-            "--out-chain",
-            "out.chain",
-        ])
-        .expect("args parse");
-
-        assert_eq!(
-            resolve_log_level(&cli.command, cli.level).unwrap(),
-            LevelFilter::Info
-        );
-    }
-
-    #[test]
-    fn outdir_split_defaults_logging_to_info() {
-        let cli = Cli::try_parse_from([
-            "chaintools",
-            "split",
-            "--chain",
-            "input.chain",
-            "--outdir",
-            "out",
-            "--chunks",
-            "10",
-        ])
-        .expect("args parse");
-
-        assert_eq!(
-            resolve_log_level(&cli.command, cli.level).unwrap(),
-            LevelFilter::Info
-        );
-    }
-
-    #[test]
-    fn stdout_antirepeat_defaults_logging_off() {
-        let cli = Cli::try_parse_from([
-            "chaintools",
-            "anti-repeat",
-            "--reference",
-            "target.2bit",
-            "--query",
-            "query.2bit",
-        ])
-        .expect("args parse");
-
-        assert_eq!(
-            resolve_log_level(&cli.command, cli.level).unwrap(),
-            LevelFilter::Off
-        );
-    }
-
-    #[test]
-    fn out_chain_antirepeat_defaults_logging_to_info() {
-        let cli = Cli::try_parse_from([
-            "chaintools",
-            "anti-repeat",
-            "--reference",
-            "target.2bit",
-            "--query",
-            "query.2bit",
-            "--out-chain",
-            "out.chain",
-        ])
-        .expect("args parse");
-
-        assert_eq!(
-            resolve_log_level(&cli.command, cli.level).unwrap(),
-            LevelFilter::Info
-        );
+        assert_eq!(resolve_log_level(cli.level), LevelFilter::Info);
     }
 }
 

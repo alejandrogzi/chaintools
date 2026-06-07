@@ -295,22 +295,6 @@ pub struct FilterArgs {
     no_hap: bool,
 }
 
-impl FilterArgs {
-    /// Returns true if output goes to stdout.
-    pub(crate) fn writes_to_stdout(&self) -> bool {
-        self.out_chain.is_none()
-    }
-
-    /// Returns default log level based on output.
-    pub(crate) fn default_log_level(&self) -> log::LevelFilter {
-        if self.out_chain.is_some() {
-            log::LevelFilter::Info
-        } else {
-            log::LevelFilter::Off
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 struct NameSet {
     names: HashSet<Vec<u8>>,
@@ -425,7 +409,6 @@ where
         run_to_writer(&args, stdin, stdout, stderr)?;
     }
 
-    log::info!("Finished filtering chains");
     Ok(())
 }
 
@@ -525,8 +508,10 @@ where
 {
     let mut zero_gap_merge_count = 0usize;
     let mut next_generated_id = 1u64;
+    let mut stats = FilterStats::default();
 
     if args.chains.is_empty() {
+        log::debug!("filtering <stdin>");
         let mut reader = StreamingReader::new(stdin);
         process_reader(
             args,
@@ -534,9 +519,11 @@ where
             stdout,
             &mut next_generated_id,
             &mut zero_gap_merge_count,
+            &mut stats,
         )?;
     } else {
         for input in &args.chains {
+            log::debug!("filtering {}", input.display());
             let mut reader = StreamingReader::from_path(input)?;
             process_reader(
                 args,
@@ -544,6 +531,7 @@ where
                 stdout,
                 &mut next_generated_id,
                 &mut zero_gap_merge_count,
+                &mut stats,
             )?;
         }
     }
@@ -551,7 +539,30 @@ where
     if args.zero_gap {
         writeln!(stderr, "{zero_gap_merge_count} zero length gaps eliminated")?;
     }
+
+    let files = if args.chains.is_empty() {
+        1
+    } else {
+        args.chains.len() as u64
+    };
+    super::log_summary(
+        "filter",
+        &[
+            ("files", files),
+            ("read", stats.read),
+            ("written", stats.passed),
+            ("dropped", stats.read - stats.passed),
+            ("zero_gap_merges", zero_gap_merge_count as u64),
+        ],
+    );
     Ok(())
+}
+
+/// Running counts accumulated while filtering chains.
+#[derive(Default)]
+struct FilterStats {
+    read: u64,
+    passed: u64,
 }
 
 /// Processes chains from a streaming reader.
@@ -561,6 +572,7 @@ fn process_reader<R, W>(
     stdout: &mut W,
     next_generated_id: &mut u64,
     zero_gap_merge_count: &mut usize,
+    stats: &mut FilterStats,
 ) -> Result<(), CliError>
 where
     R: BufRead,
@@ -568,6 +580,7 @@ where
 {
     reader.set_next_generated_id(*next_generated_id);
     while let Some(header) = reader.next_header()? {
+        stats.read += 1;
         reserve_negative_score_warning(&header);
         validate_header(&header)?;
 
@@ -586,11 +599,13 @@ where
             }
             if passes_header && passes_block_filters_absolute(args, &absolute) {
                 write_chain_absolute(stdout, &header, &absolute, args.output_format)?;
+                stats.passed += 1;
             }
         } else {
             validate_block_span_from_blocks(&header, &blocks)?;
             if passes_block_filters_blocks(args, &blocks) {
                 write_chain_dense(stdout, &header, &blocks)?;
+                stats.passed += 1;
             }
         }
     }

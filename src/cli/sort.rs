@@ -82,18 +82,6 @@ pub struct SortArgs {
 }
 
 impl SortArgs {
-    pub(crate) fn writes_to_stdout(&self) -> bool {
-        self.out_chain.is_none()
-    }
-
-    pub(crate) fn default_log_level(&self) -> log::LevelFilter {
-        if self.out_chain.is_some() {
-            log::LevelFilter::Info
-        } else {
-            log::LevelFilter::Off
-        }
-    }
-
     fn max_in_memory_bytes(&self) -> Result<u64, CliError> {
         if !self.max_gb.is_finite() {
             return Err(CliError::Message(
@@ -306,7 +294,17 @@ where
     let max_in_memory_bytes = args.max_in_memory_bytes()?;
     let temp_dir = temp_directory(&args);
 
-    let (metadata, sorted) = if let Some(path) = &args.chain {
+    let input_desc = args
+        .chain
+        .as_deref()
+        .map_or_else(|| "<stdin>".to_owned(), |path| path.display().to_string());
+    log::info!(
+        "sort: key={}, max_gb={}, input={input_desc}",
+        args.sort_by,
+        args.max_gb
+    );
+
+    let collected = if let Some(path) = &args.chain {
         let mut reader = StreamingReader::from_path(path)?;
         collect_sorted_input(&args, max_in_memory_bytes, &mut reader, &temp_dir)?
     } else {
@@ -314,7 +312,28 @@ where
         collect_sorted_input(&args, max_in_memory_bytes, &mut reader, &temp_dir)?
     };
 
-    emit_output(&args, &metadata, sorted, stdout)
+    let chains = collected.chains;
+    let runs_spilled = collected.runs_spilled;
+    let metadata_lines = collected.metadata.len() as u64;
+    emit_output(&args, &collected.metadata, collected.sorted, stdout)?;
+
+    super::log_summary(
+        "sort",
+        &[
+            ("chains", chains),
+            ("metadata", metadata_lines),
+            ("runs_spilled", runs_spilled),
+        ],
+    );
+    Ok(())
+}
+
+/// Collected, sorted input plus the counts surfaced in the run summary.
+struct CollectedInput {
+    metadata: Vec<Vec<u8>>,
+    sorted: SortedInput,
+    chains: u64,
+    runs_spilled: u64,
 }
 
 /// Validates output arguments for sort command.
@@ -412,11 +431,20 @@ fn collect_sorted_input<R: BufRead>(
     max_in_memory_bytes: u64,
     reader: &mut StreamingReader<R>,
     temp_dir: &Path,
-) -> Result<(Vec<Vec<u8>>, SortedInput), CliError> {
+) -> Result<CollectedInput, CliError> {
     let mut accumulator =
         SortAccumulator::new(args.sort_by.criterion(), max_in_memory_bytes, temp_dir);
     accumulator.push_stream(reader)?;
-    accumulator.finish()
+    // Capture counts before `finish` consumes the accumulator.
+    let chains = accumulator.chains_pushed();
+    let runs_spilled = accumulator.runs_spilled();
+    let (metadata, sorted) = accumulator.finish()?;
+    Ok(CollectedInput {
+        metadata,
+        sorted,
+        chains,
+        runs_spilled,
+    })
 }
 
 /// Emits sorted output to the appropriate writer.
