@@ -1,13 +1,13 @@
 // Copyright (c) 2026 Alejandro Gonzales-Irribarren <alejandrxgzi@gmail.com>
 // Distributed under the terms of the Apache License, Version 2.0.
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chaintools::io::writer::write_chain_dense;
 use chaintools::seq::antirepeat::{AntiRepeatConfig, AntiRepeatEngine};
-use chaintools::seq::sequence::SequenceCache;
 use chaintools::{OwnedChain, StreamItem, StreamingReader};
 use clap::Args;
 #[cfg(feature = "gzip")]
@@ -16,8 +16,11 @@ use flate2::{Compression, write::GzEncoder};
 use super::CliError;
 
 const OUTPUT_BUFFER_CAPACITY: usize = 1024 * 1024;
-const MAX_BATCH_CHAINS: usize = 256;
-const MAX_BATCH_BLOCKS: usize = 65_536;
+// Batches are filtered in parallel, so larger batches amortize rayon's
+// per-batch fan-out now that each chain's sequence access is an in-memory
+// slice. MAX_BATCH_BLOCKS still caps the peak memory held by a single batch.
+const MAX_BATCH_CHAINS: usize = 1_024;
+const MAX_BATCH_BLOCKS: usize = 262_144;
 
 /// Command-line arguments for the anti-repeat subcommand.
 ///
@@ -148,14 +151,31 @@ where
         .map_or_else(|| "<stdout>".to_owned(), |path| path.display().to_string());
     log::info!("reading chains from {input_desc}, writing to {output_desc}");
 
-    let engine = AntiRepeatEngine::new(
-        &args.reference,
-        &args.query,
-        AntiRepeatConfig {
-            min_score: args.min_score,
-            no_check_score: args.no_check_score,
-        },
-    )?;
+    let config = AntiRepeatConfig {
+        min_score: args.min_score,
+        no_check_score: args.no_check_score,
+    };
+    // When the input is a real file we can cheaply pre-scan its headers to learn
+    // which reference/query sequences are actually referenced, and preload only
+    // those. A stdin pipe cannot be rewound, so fall back to loading everything.
+    let engine = match args.chain.as_deref() {
+        Some(path) => {
+            let (reference_names, query_names) = collect_referenced_names(path)?;
+            log::info!(
+                "pre-scan: {} reference and {} query sequences referenced",
+                reference_names.len(),
+                query_names.len()
+            );
+            AntiRepeatEngine::new_filtered(
+                &args.reference,
+                &args.query,
+                config,
+                Some(&reference_names),
+                Some(&query_names),
+            )?
+        }
+        None => AntiRepeatEngine::new(&args.reference, &args.query, config)?,
+    };
 
     #[cfg(feature = "gzip")]
     if args.gzip {
@@ -183,6 +203,41 @@ where
     }
     writer.flush()?;
     Ok(())
+}
+
+/// Distinct reference and query sequence names referenced by a chain file.
+type ReferencedNames = (HashSet<Vec<u8>>, HashSet<Vec<u8>>);
+
+/// Collects the reference and query sequence names referenced by a chain file.
+///
+/// Performs a cheap header-only pass over the chain file (block lines are
+/// skipped, not parsed), returning the distinct reference and query names so the
+/// engine can preload only the sequences that are actually used. This reads the
+/// file once in addition to the main processing pass; for gzip inputs the file
+/// is decompressed twice. The returned names never influence which bytes reach
+/// the filters — they only bound how much sequence is loaded into memory.
+///
+/// # Arguments
+///
+/// * `path` - Path to the input chain file (plain or gzip)
+///
+/// # Output
+///
+/// Returns `Ok((reference_names, query_names))` or `Err(CliError)` on failure
+fn collect_referenced_names(path: &Path) -> Result<ReferencedNames, CliError> {
+    let mut reader = StreamingReader::from_path(path)?;
+    let mut reference_names = HashSet::new();
+    let mut query_names = HashSet::new();
+    while let Some(header) = reader.next_header()? {
+        if !reference_names.contains(header.reference_name.as_slice()) {
+            reference_names.insert(header.reference_name.clone());
+        }
+        if !query_names.contains(header.query_name.as_slice()) {
+            query_names.insert(header.query_name.clone());
+        }
+        reader.skip_blocks()?;
+    }
+    Ok((reference_names, query_names))
 }
 
 /// Validates output arguments for anti-repeat command.
@@ -386,8 +441,8 @@ fn filter_batch(
 
     let results: Vec<Result<Option<OwnedChain>, chaintools::ChainError>> = batch
         .into_par_iter()
-        .map_init(SequenceCache::default, |cache, chain| {
-            if engine.chain_passes(cache, &chain)? {
+        .map(|chain| {
+            if engine.chain_passes(&chain)? {
                 Ok(Some(chain))
             } else {
                 Ok(None)
@@ -431,10 +486,9 @@ fn filter_batch(
     batch: Vec<OwnedChain>,
     engine: &AntiRepeatEngine,
 ) -> Result<Vec<OwnedChain>, CliError> {
-    let mut cache = SequenceCache::default();
     let mut kept = Vec::new();
     for chain in batch {
-        if engine.chain_passes(&mut cache, &chain)? {
+        if engine.chain_passes(&chain)? {
             kept.push(chain);
         }
     }
@@ -828,6 +882,44 @@ mod tests {
             },
             chain,
         );
+
+        assert_eq!(String::from_utf8(stdout).unwrap(), chain);
+    }
+
+    #[test]
+    fn file_input_prescans_and_loads_only_referenced_sequences() {
+        // Exercises the --chain file path: a header pre-scan collects referenced
+        // names and only those sequences are preloaded. chr2 exists in both 2bit
+        // files but is never referenced; the kept chain must still be emitted in
+        // canonical dense format, identical to the load-everything path.
+        let temp = TempDir::new();
+        let reference = temp.path().join("reference.2bit");
+        let query = temp.path().join("query.2bit");
+        write_twobit(&reference, ">chr1\nACGTACGTAC\n>chr2\nNNNNNNNNNN\n");
+        write_twobit(&query, ">chr1\nACGTACGTAC\n>chr2\nNNNNNNNNNN\n");
+
+        let chain_path = temp.path().join("in.chain");
+        let chain = "chain 10000 chr1 10 + 0 10 chr1 10 + 0 10 1\n10\n\n";
+        write_text(&chain_path, chain);
+
+        let mut stdin = Cursor::new(Vec::<u8>::new());
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        run(
+            AntiRepeatArgs {
+                reference,
+                query,
+                chain: Some(chain_path),
+                out_chain: None,
+                gzip: false,
+                min_score: 5_000,
+                no_check_score: 200_000,
+            },
+            &mut stdin,
+            &mut stdout,
+            &mut stderr,
+        )
+        .expect("anti-repeat run");
 
         assert_eq!(String::from_utf8(stdout).unwrap(), chain);
     }

@@ -1,6 +1,6 @@
 [package]
 name = "chaintools"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2024"
 authors = ["alejandrogzi <alejandrxgzi@gmail.com>"]
 license = "MIT"
@@ -13,7 +13,7 @@ default-run = "chaintools"
 
 [features]
 default = ["mmap", "cli"]
-cli = ["dep:clap", "dep:log", "dep:simple_logger", "sequence", "dep:num_cpus"]
+cli = ["dep:clap", "dep:log", "dep:simple_logger", "sequence", "dep:num_cpus", "parallel"]
 mmap = ["memmap2"]
 gzip = ["dep:flate2", "flate2/zlib-rs"]
 parallel = ["rayon"]
