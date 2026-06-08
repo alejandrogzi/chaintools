@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Alejandro Gonzales-Irribarren <alejandrxgzi@gmail.com>
 // Distributed under the terms of the Apache License, Version 2.0.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
@@ -36,6 +36,9 @@ pub type SequenceMap = HashMap<Vec<u8>, Vec<u8>>;
 /// * `Loaded` - Pre-loaded FASTA sequences in memory
 #[derive(Debug, Clone)]
 enum SequenceSource {
+    // Retained so `fetch`/`SequenceCache` keep a stable shape for other callers
+    // (e.g. `score`); the anti-repeat path now always preloads into `Loaded`.
+    #[allow(dead_code)]
     TwoBit(PathBuf),
     Loaded {
         path: PathBuf,
@@ -104,10 +107,38 @@ impl SequenceResolver {
     /// let resolver = SequenceResolver::new("sequences.fa")?;
     /// ```
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, ChainError> {
+        Self::new_filtered(path, None)
+    }
+
+    /// Creates a resolver, preloading either all sequences or only those named.
+    ///
+    /// Both 2bit and FASTA inputs are decoded fully into memory up front (the
+    /// 2bit soft-mask/N block scan is paid once per sequence at load time rather
+    /// than once per `fetch`), so every later `fetch` is an in-memory slice.
+    /// When `names` is `Some`, only the listed 2bit sequences are loaded; FASTA
+    /// inputs are always loaded in full because they are parsed in a single
+    /// pass. Sequences referenced but absent from the file are simply not loaded
+    /// and surface as [`ChainError::MissingSequence`] at fetch time.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the sequence file
+    /// * `names` - Sequence names to load, or `None` to load every sequence
+    ///
+    /// # Output
+    ///
+    /// Returns `Ok(SequenceResolver)` or `Err(ChainError)` if unsupported format
+    pub fn new_filtered<P: AsRef<Path>>(
+        path: P,
+        names: Option<&HashSet<Vec<u8>>>,
+    ) -> Result<Self, ChainError> {
         let path = path.as_ref().to_path_buf();
         match detect_sequence_format(&path) {
             Some(SequenceFormat::TwoBit) => Ok(Self {
-                source: SequenceSource::TwoBit(path),
+                source: SequenceSource::Loaded {
+                    path: path.clone(),
+                    sequences: Arc::new(from_2bit_filtered(&path, names)?),
+                },
             }),
             Some(SequenceFormat::Fasta) => Ok(Self {
                 source: SequenceSource::Loaded {
@@ -160,6 +191,35 @@ impl SequenceResolver {
             SequenceSource::TwoBit(path) => cache.fetch_twobit(path, seq_name, start, length),
             SequenceSource::Loaded { path, sequences } => {
                 fetch_loaded_sequence(path, sequences, seq_name, start, length)
+            }
+        }
+    }
+
+    /// Borrows a full decoded chromosome from the preloaded sequence map.
+    ///
+    /// Unlike [`SequenceResolver::fetch`], this returns a zero-copy slice into
+    /// the in-memory sequence instead of allocating a copy of a sub-range,
+    /// letting callers index aligned regions directly. Only the preloaded
+    /// (`Loaded`) source supports it; a missing name yields
+    /// [`ChainError::MissingSequence`], matching `fetch`'s behavior.
+    ///
+    /// # Arguments
+    ///
+    /// * `seq_name` - Name of the sequence to borrow
+    ///
+    /// # Output
+    ///
+    /// Returns `Ok(&[u8])` with the full sequence, or `Err(ChainError)`
+    pub fn chromosome(&self, seq_name: &[u8]) -> Result<&[u8], ChainError> {
+        match &self.source {
+            SequenceSource::Loaded { sequences, .. } => sequences
+                .get(seq_name)
+                .map(Vec::as_slice)
+                .ok_or_else(|| ChainError::MissingSequence {
+                    name: String::from_utf8_lossy(seq_name).into_owned().into(),
+                }),
+            SequenceSource::TwoBit(_) => {
+                Err(sequence_error("chromosome() requires preloaded sequences"))
             }
         }
     }
@@ -349,12 +409,34 @@ fn from_stdin() -> Result<SequenceMap, ChainError> {
 /// let sequences = from_2bit("genome.2bit")?;
 /// ```
 pub fn from_2bit<P: AsRef<Path>>(path: P) -> Result<SequenceMap, ChainError> {
+    from_2bit_filtered(path, None)
+}
+
+/// Loads sequences from a 2bit file, optionally restricted to named sequences.
+///
+/// Behaves like [`from_2bit`] but, when `names` is `Some`, only loads the 2bit
+/// sequences whose name appears in the set. Names in the set that are absent
+/// from the file are skipped (they surface later as
+/// [`ChainError::MissingSequence`] at fetch time). `None` loads everything.
+///
+/// # Arguments
+///
+/// * `path` - Path to the 2bit file
+/// * `names` - Sequence names to load, or `None` for all
+///
+/// # Output
+///
+/// Returns `Ok(SequenceMap)` containing the selected sequences, or `Err(ChainError)`
+pub fn from_2bit_filtered<P: AsRef<Path>>(
+    path: P,
+    names: Option<&HashSet<Vec<u8>>>,
+) -> Result<SequenceMap, ChainError> {
     let path = path.as_ref();
     let genome = TwoBitFile::open(path)
         .map_err(|err| sequence_error(format!("cannot open 2bit {}: {err}", path.display())))?
         .enable_softmask(true);
     let source = format!("file {}", path.display());
-    collect_2bit_sequences(genome, &source)
+    collect_2bit_sequences(genome, &source, names)
 }
 
 /// Parses 2bit format from a buffer.
@@ -373,7 +455,7 @@ fn from_2bit_buf(buf: Vec<u8>, source: &str) -> Result<SequenceMap, ChainError> 
     let genome = TwoBitFile::from_buf(buf)
         .map_err(|err| sequence_error(format!("cannot read 2bit from {source}: {err}")))?
         .enable_softmask(true);
-    collect_2bit_sequences(genome, source)
+    collect_2bit_sequences(genome, source, None)
 }
 
 /// Collects all sequences from a 2bit file.
@@ -391,9 +473,16 @@ fn from_2bit_buf(buf: Vec<u8>, source: &str) -> Result<SequenceMap, ChainError> 
 fn collect_2bit_sequences<R: Read + std::io::Seek>(
     mut genome: TwoBitFile<R>,
     source: &str,
+    names: Option<&HashSet<Vec<u8>>>,
 ) -> Result<SequenceMap, ChainError> {
     let mut sequences = HashMap::new();
     for chr in genome.chrom_names() {
+        // Skip sequences the caller did not ask for. A requested name that is
+        // absent from the file is simply never loaded and surfaces as
+        // MissingSequence at fetch time, matching the load-everything behavior.
+        if names.is_some_and(|filter| !filter.contains(chr.as_bytes())) {
+            continue;
+        }
         let seq = genome
             .read_sequence(&chr, ..)
             .map_err(|err| sequence_error(format!("cannot read {chr} from {source}: {err}")))?;

@@ -15,6 +15,12 @@ use crate::model::chain::Strand;
 use crate::model::error::ChainError;
 use crate::parser::common::{is_blank, parse_block, parse_header_with_default_id};
 
+/// Capacity of the buffered reader wrapping file/gzip chain inputs.
+///
+/// A large buffer cuts the number of read syscalls on big chain files, which
+/// matters for multi-hundred-megabyte inputs streamed line by line.
+const INPUT_BUFFER_CAPACITY: usize = 1 << 20;
+
 /// Owned chain representation for streaming mode.
 ///
 /// Stores all data as owned `Vec<u8>` bytes instead of zero-copy references.
@@ -659,9 +665,12 @@ impl StreamingReader<Box<dyn BufRead>> {
             #[cfg(feature = "gzip")]
             {
                 let file = std::fs::File::open(path)?;
-                let reader = BufReader::new(file);
+                let reader = BufReader::with_capacity(INPUT_BUFFER_CAPACITY, file);
                 let decoder = MultiGzDecoder::new(reader);
-                return Ok(StreamingReader::new(Box::new(BufReader::new(decoder))));
+                return Ok(StreamingReader::new(Box::new(BufReader::with_capacity(
+                    INPUT_BUFFER_CAPACITY,
+                    decoder,
+                ))));
             }
             #[cfg(not(feature = "gzip"))]
             {
@@ -670,7 +679,10 @@ impl StreamingReader<Box<dyn BufRead>> {
         }
 
         let file = std::fs::File::open(path)?;
-        Ok(StreamingReader::new(Box::new(BufReader::new(file))))
+        Ok(StreamingReader::new(Box::new(BufReader::with_capacity(
+            INPUT_BUFFER_CAPACITY,
+            file,
+        ))))
     }
 }
 
