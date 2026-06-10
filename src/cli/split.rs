@@ -63,6 +63,24 @@ pub struct SplitArgs {
         help = "Compress every split output file with gzip. Requires the `gzip` feature."
     )]
     gzip: bool,
+
+    #[arg(
+        short = 'R',
+        long = "randomize",
+        help = "Distribute chains across output files in random order instead of input order, \
+                spreading large chains evenly (e.g. when the input is sorted by score). \
+                Use --seed for reproducible output."
+    )]
+    randomize: bool,
+
+    #[arg(
+        long = "seed",
+        value_name = "SEED",
+        requires = "randomize",
+        help = "u64 seed for --randomize, making the shuffle reproducible. \
+                Defaults to a time-based seed that is logged at startup."
+    )]
+    seed: Option<u64>,
 }
 
 impl SplitArgs {
@@ -194,15 +212,22 @@ where
             );
         }
 
+        let whole = 0..input.bytes().len();
         write_output_slice(
             output,
             input.shared_bytes(),
-            0..input.bytes().len(),
+            std::slice::from_ref(&whole),
             args.gzip,
         )?;
         log::info!("Finished writing 1 split file");
         return Ok(());
     }
+
+    let randomize = args.randomize.then(|| {
+        let seed = args.seed.unwrap_or_else(default_seed);
+        log::info!("Randomizing chain distribution with seed {seed}");
+        seed
+    });
 
     let plans = plan_outputs(
         &output_dir,
@@ -211,6 +236,7 @@ where
         &chain_starts,
         mode,
         args.gzip,
+        randomize,
     );
     ensure_output_paths_absent(
         &plans
@@ -319,6 +345,7 @@ fn should_collapse(mode: SplitMode, total_chains: usize) -> bool {
 /// * `chain_starts` - The byte ranges of each chain in the input file
 /// * `mode` - The split mode
 /// * `gzip` - Whether to compress the output files
+/// * `randomize` - `Some(seed)` shuffles chain order with the seed; `None` keeps input order
 ///
 /// # Output
 ///
@@ -337,7 +364,7 @@ fn should_collapse(mode: SplitMode, total_chains: usize) -> bool {
 /// let chain_starts = vec![0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 /// let mode = SplitMode::Files(NonZeroUsize::new(2).unwrap());
 /// let gzip = false;
-/// let plans = plan_outputs(&output_dir, &basename, total_bytes, &chain_starts, mode, gzip);
+/// let plans = plan_outputs(&output_dir, &basename, total_bytes, &chain_starts, mode, gzip, None);
 /// assert_eq!(plans.len(), 2);
 /// ```
 fn plan_outputs(
@@ -347,9 +374,12 @@ fn plan_outputs(
     chain_starts: &[usize],
     mode: SplitMode,
     gzip: bool,
+    randomize: Option<u64>,
 ) -> Vec<OutputPlan> {
     let total_chains = chain_starts.len();
-    let chain_ranges = match mode {
+
+    // Partition boundaries as half-open index ranges into the chain ordering.
+    let partitions = match mode {
         SplitMode::Files(files) => (0..files.get())
             .map(|index| {
                 let start = index * total_chains / files.get();
@@ -363,28 +393,73 @@ fn plan_outputs(
             .collect::<Vec<_>>(),
     };
 
-    let width = std::cmp::max(5, decimal_width(chain_ranges.len()));
-    chain_ranges
+    // The order the partitions slice into. `None` keeps input order and the
+    // original zero-copy contiguous-range fast path; `Some(seed)` shuffles.
+    let order = randomize.map(|seed| {
+        let mut indices = (0..total_chains).collect::<Vec<_>>();
+        shuffle_indices(&mut indices, seed);
+        indices
+    });
+
+    let width = std::cmp::max(5, decimal_width(partitions.len()));
+    partitions
         .into_iter()
         .enumerate()
-        .map(|(index, chain_range)| {
-            let byte_start = if chain_range.start == 0 {
-                0
-            } else {
-                chain_starts[chain_range.start]
-            };
-            let byte_end = if chain_range.end >= total_chains {
-                total_bytes
-            } else {
-                chain_starts[chain_range.end]
-            };
+        .map(|(index, part)| {
             let path = output_dir.join(output_filename(index + 1, width, basename, gzip));
-            OutputPlan {
-                path,
-                byte_range: byte_start..byte_end,
-            }
+            let byte_ranges = match &order {
+                None => {
+                    let byte_start = if part.start == 0 {
+                        0
+                    } else {
+                        chain_starts[part.start]
+                    };
+                    let byte_end = if part.end >= total_chains {
+                        total_bytes
+                    } else {
+                        chain_starts[part.end]
+                    };
+                    std::iter::once(byte_start..byte_end).collect()
+                }
+                Some(order) => {
+                    let mut chains = order[part].to_vec();
+                    chains.sort_unstable();
+                    merge_chain_ranges(&chains, chain_starts, total_bytes)
+                }
+            };
+            OutputPlan { path, byte_ranges }
         })
         .collect()
+}
+
+/// Maps a sorted list of chain indices to a minimal set of source byte ranges.
+///
+/// Each chain `i` spans `chain_starts[i]..chain_starts[i + 1]` (or `total_bytes`
+/// for the last chain). Chain `0` additionally owns any preamble bytes before
+/// the first header (so it starts at `0`), mirroring the non-randomized path and
+/// keeping the per-chain ranges a gap-free partition of the whole input.
+/// Adjacent chains that are contiguous in the source are coalesced into a single
+/// range to minimize the number of writes.
+fn merge_chain_ranges(
+    sorted_chains: &[usize],
+    chain_starts: &[usize],
+    total_bytes: usize,
+) -> Vec<std::ops::Range<usize>> {
+    let total_chains = chain_starts.len();
+    let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    for &i in sorted_chains {
+        let start = if i == 0 { 0 } else { chain_starts[i] };
+        let end = if i + 1 >= total_chains {
+            total_bytes
+        } else {
+            chain_starts[i + 1]
+        };
+        match ranges.last_mut() {
+            Some(last) if last.end == start => last.end = end,
+            _ => ranges.push(start..end),
+        }
+    }
+    ranges
 }
 
 /// Returns the path for a single output file.
@@ -448,6 +523,56 @@ fn output_filename(index: usize, width: usize, basename: &str, gzip: bool) -> St
     }
 }
 
+/// Minimal SplitMix64 PRNG.
+///
+/// Used to shuffle chain order for `--randomize` without pulling in an external
+/// crate. SplitMix64 is fast, deterministic for a given seed, and has more than
+/// enough statistical quality for a one-shot Fisher–Yates shuffle.
+struct SplitMix64 {
+    state: u64,
+}
+
+impl SplitMix64 {
+    /// Creates a generator from a seed.
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    /// Returns the next pseudo-random `u64`.
+    fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9E3779B97F4A7C15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+        z ^ (z >> 31)
+    }
+
+    /// Returns a pseudo-random integer in `[0, bound)`.
+    ///
+    /// Uses Lemire's multiply-high mapping; the bias is bounded by
+    /// `bound / 2^64` and is negligible for shuffling. `bound` must be non-zero.
+    fn next_bounded(&mut self, bound: u64) -> u64 {
+        ((self.next_u64() as u128 * bound as u128) >> 64) as u64
+    }
+}
+
+/// Shuffles `indices` in place using a seeded Fisher–Yates pass.
+fn shuffle_indices(indices: &mut [usize], seed: u64) {
+    let mut rng = SplitMix64::new(seed);
+    for i in (1..indices.len()).rev() {
+        let j = rng.next_bounded((i + 1) as u64) as usize;
+        indices.swap(i, j);
+    }
+}
+
+/// Returns a time-based seed for `--randomize` when no `--seed` is given.
+fn default_seed() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos() as u64)
+        .unwrap_or(0x9E3779B97F4A7C15)
+}
+
 /// Returns the width of a decimal number.
 fn decimal_width(mut value: usize) -> usize {
     let mut width = 1;
@@ -481,12 +606,7 @@ fn write_output_plans(
     use rayon::prelude::*;
 
     plans.par_iter().try_for_each(|plan| {
-        write_output_slice(
-            plan.path.clone(),
-            source.clone(),
-            plan.byte_range.clone(),
-            gzip,
-        )
+        write_output_slice(plan.path.clone(), source.clone(), &plan.byte_ranges, gzip)
     })
 }
 
@@ -498,12 +618,7 @@ fn write_output_plans(
     gzip: bool,
 ) -> Result<(), CliError> {
     for plan in plans {
-        write_output_slice(
-            plan.path.clone(),
-            source.clone(),
-            plan.byte_range.clone(),
-            gzip,
-        )?;
+        write_output_slice(plan.path.clone(), source.clone(), &plan.byte_ranges, gzip)?;
     }
     Ok(())
 }
@@ -512,11 +627,12 @@ fn write_output_plans(
 fn write_output_slice(
     path: PathBuf,
     source: SharedInputBytes,
-    byte_range: std::ops::Range<usize>,
+    byte_ranges: &[std::ops::Range<usize>],
     gzip: bool,
 ) -> Result<(), CliError> {
-    let slice = &source.as_slice()[byte_range];
-    log::debug!("Writing {} bytes to {}", slice.len(), path.display());
+    let bytes = source.as_slice();
+    let total: usize = byte_ranges.iter().map(|range| range.len()).sum();
+    log::debug!("Writing {} bytes to {}", total, path.display());
 
     let file = File::create(&path)?;
     let writer = BufWriter::with_capacity(IO_BUFFER_CAPACITY, file);
@@ -526,7 +642,9 @@ fn write_output_slice(
         use flate2::{write::GzEncoder, Compression};
 
         let mut encoder = GzEncoder::new(writer, Compression::fast());
-        encoder.write_all(slice)?;
+        for range in byte_ranges {
+            encoder.write_all(&bytes[range.clone()])?;
+        }
         encoder.try_finish()?;
         encoder.get_mut().flush()?;
         return Ok(());
@@ -536,7 +654,9 @@ fn write_output_slice(
     let _ = gzip;
 
     let mut writer = writer;
-    writer.write_all(slice)?;
+    for range in byte_ranges {
+        writer.write_all(&bytes[range.clone()])?;
+    }
     writer.flush()?;
     Ok(())
 }
@@ -807,11 +927,11 @@ enum SourceEncoding {
 /// # Fields
 ///
 /// * `path` - The output file path
-/// * `byte_range` - The byte range of the output file
+/// * `byte_ranges` - The source byte ranges written to the output file, in order
 #[derive(Debug, Clone)]
 struct OutputPlan {
     path: PathBuf,
-    byte_range: std::ops::Range<usize>,
+    byte_ranges: Vec<std::ops::Range<usize>>,
 }
 
 /// Temporary input file.
@@ -1048,6 +1168,164 @@ mod tests {
 
         let files = read_split_files(&output.join("chains"));
         assert_eq!(files.len(), 2);
+    }
+
+    /// Splits `bytes` into per-chain records the same way the splitter does:
+    /// record 0 owns any preamble (starts at byte 0); each later record starts
+    /// at its `chain ` header. Used to compare split output against the input
+    /// regardless of how chains were distributed across files.
+    fn chain_records(bytes: &[u8]) -> Vec<Vec<u8>> {
+        let mut headers = Vec::new();
+        for i in 0..bytes.len() {
+            let at_line_start = i == 0 || bytes[i - 1] == b'\n';
+            if at_line_start && bytes[i..].starts_with(b"chain ") {
+                headers.push(i);
+            }
+        }
+        (0..headers.len())
+            .map(|k| {
+                let start = if k == 0 { 0 } else { headers[k] };
+                let end = headers.get(k + 1).copied().unwrap_or(bytes.len());
+                bytes[start..end].to_vec()
+            })
+            .collect()
+    }
+
+    const MULTI_CHAIN: &[u8] = b"#hdr\nchain 1 chr1 100 + 0 5 q 100 + 0 5 1\n5\n\nchain 2 chr1 100 + 0 6 q 100 + 0 6 2\n6\n\nchain 3 chr1 100 + 0 7 q 100 + 0 7 3\n7\n\nchain 4 chr1 100 + 0 8 q 100 + 0 8 4\n8\n\nchain 5 chr1 100 + 0 9 q 100 + 0 9 5\n9\n\nchain 6 chr1 100 + 0 4 q 100 + 0 4 6\n4\n\n";
+
+    #[test]
+    fn shuffle_indices_is_a_valid_permutation() {
+        let mut indices = (0..64).collect::<Vec<_>>();
+        shuffle_indices(&mut indices, 42);
+
+        let mut sorted = indices.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..64).collect::<Vec<_>>());
+        assert_ne!(indices, (0..64).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn shuffle_indices_is_deterministic() {
+        let mut first = (0..64).collect::<Vec<_>>();
+        let mut second = (0..64).collect::<Vec<_>>();
+        shuffle_indices(&mut first, 7);
+        shuffle_indices(&mut second, 7);
+        assert_eq!(first, second);
+
+        let mut other = (0..64).collect::<Vec<_>>();
+        shuffle_indices(&mut other, 8);
+        assert_ne!(first, other);
+    }
+
+    #[test]
+    fn merge_chain_ranges_coalesces_contiguous() {
+        let chain_starts = vec![0, 10, 20, 30, 40];
+        let total = 50;
+
+        assert_eq!(
+            merge_chain_ranges(&[1, 2, 3], &chain_starts, total),
+            vec![10..40]
+        );
+        assert_eq!(
+            merge_chain_ranges(&[0, 2, 4], &chain_starts, total),
+            vec![0..10, 20..30, 40..50]
+        );
+    }
+
+    #[test]
+    fn merge_chain_ranges_keeps_preamble_with_first_chain() {
+        // First header at byte 4: bytes [0..4) are a preamble.
+        let chain_starts = vec![4, 14, 24];
+        let total = 30;
+
+        assert_eq!(merge_chain_ranges(&[0], &chain_starts, total), vec![0..14]);
+        assert_eq!(merge_chain_ranges(&[2], &chain_starts, total), vec![24..30]);
+    }
+
+    #[test]
+    fn randomize_preserves_all_chains() {
+        let temp = TempDir::new();
+        let input = temp.path.join("sample.chain");
+        let output = temp.path.join("out");
+        fs::write(&input, MULTI_CHAIN).expect("write input");
+
+        run_ok(
+            vec![
+                arg("--chain"),
+                input.as_os_str().to_owned(),
+                arg("--outdir"),
+                output.as_os_str().to_owned(),
+                arg("--files"),
+                arg("4"),
+                arg("--randomize"),
+                arg("--seed"),
+                arg("12345"),
+            ],
+            b"",
+        );
+
+        let files = read_split_files(&output.join("chains"));
+        assert_eq!(files.len(), 4);
+
+        // Every input chain appears exactly once across the output files.
+        let mut actual = files
+            .iter()
+            .flat_map(|(_, bytes)| chain_records(bytes))
+            .collect::<Vec<_>>();
+        let mut expected = chain_records(MULTI_CHAIN);
+        actual.sort();
+        expected.sort();
+        assert_eq!(actual, expected);
+
+        // No bytes lost or duplicated.
+        let total: usize = files.iter().map(|(_, bytes)| bytes.len()).sum();
+        assert_eq!(total, MULTI_CHAIN.len());
+    }
+
+    #[test]
+    fn randomize_is_reproducible_with_same_seed() {
+        let temp = TempDir::new();
+        let input = temp.path.join("sample.chain");
+        fs::write(&input, MULTI_CHAIN).expect("write input");
+
+        let run_seeded = |outdir: &Path| {
+            run_ok(
+                vec![
+                    arg("--chain"),
+                    input.as_os_str().to_owned(),
+                    arg("--outdir"),
+                    outdir.as_os_str().to_owned(),
+                    arg("--files"),
+                    arg("3"),
+                    arg("--randomize"),
+                    arg("--seed"),
+                    arg("99"),
+                ],
+                b"",
+            );
+            read_split_files(&outdir.join("chains"))
+                .into_iter()
+                .map(|(_, bytes)| bytes)
+                .collect::<Vec<_>>()
+        };
+
+        let first = run_seeded(&temp.path.join("a"));
+        let second = run_seeded(&temp.path.join("b"));
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn seed_without_randomize_is_rejected() {
+        let parsed = SplitHarness::try_parse_from([
+            arg("split"),
+            arg("--outdir"),
+            arg("out"),
+            arg("--files"),
+            arg("2"),
+            arg("--seed"),
+            arg("1"),
+        ]);
+        assert!(parsed.is_err());
     }
 
     #[cfg(unix)]
