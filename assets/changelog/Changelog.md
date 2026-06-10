@@ -5,6 +5,48 @@ All notable changes to **chaintools** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.6] - 2026-06-10
+
+### Added
+
+- **`--randomize/-R` (with optional `--seed <u64>`)** for `chaintools split`. When
+  enabled, chains are distributed across output files in random order instead of input
+  order, so when the input is sorted by id/score the largest chains spread evenly across
+  files instead of all landing in the first one.
+- **Hand-rolled RNG, no new dependency** — `SplitMix64` PRNG + Lemire-bounded
+  `next_bounded` + Fisher–Yates `shuffle_indices`, plus a time-based `default_seed()`
+  (reusing the already-imported `SystemTime`). Seed is logged at `info` level so every
+  run is reproducible.
+- **`OutputPlan.byte_range: Range → byte_ranges: Vec<Range>`**. The non-randomized path
+  is untouched and just as fast: it still produces a single contiguous zero-copy range.
+  The randomized path shuffles a chain-index permutation, partitions it with the existing
+  `--files`/`--chunks` math, then `merge_chain_ranges` maps each file's chains to a
+  minimal set of byte ranges (sorted + contiguous-coalesced to minimize writes).
+- **Robustness fix** — `merge_chain_ranges` makes chain 0 own byte 0, so the per-chain
+  ranges form a gap-free partition of the input. This preserves any preamble before the
+  first chain header (which the naive per-chain mapping would have dropped) and guarantees
+  no bytes are lost or duplicated.
+- **Writer** — `write_output_slice` now concatenates multiple ranges into the same
+  `BufWriter`/`GzEncoder`, preserving zero-copy slicing and gzip support.
+
+### Changed
+
+- CLI flags in `src/cli/split.rs` — added `-R`/`--randomize` (bool) and `--seed` (optional
+  `u64`, with clap `requires = "randomize"` so `--seed` alone is an error).
+
+### Documentation
+
+- Both flags documented in `assets/tools/split.md`.
+
+### Notes
+
+- 82 binary tests + 67 lib/integration tests pass, including 7 new ones (permutation
+  validity, determinism, range merging, preamble preservation, chain preservation,
+  reproducibility, and seed-without-randomize rejection). gzip-feature tests pass too.
+- End-to-end: confirmed reproducibility (`--seed 42` byte-identical across runs),
+  fresh-seed logging, all chains present exactly once, and visible redistribution of
+  chains across files.
+
 ## [0.0.5] - 2026-06-08
 
 Full refactor of the **`antirepeat`** tool. On a ~200 MB soft-masked chain file with
@@ -85,6 +127,7 @@ First stable release.
 - Automatic gzip (`.chain.gz`) detection and decompression (`gzip` feature).
 - Test suite, benchmark binary, CI workflows, Docker image, and rustdoc documentation.
 
+[0.0.6]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.6
 [0.0.5]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.5
 [0.0.4]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.4
 [0.0.3]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.3

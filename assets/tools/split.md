@@ -40,7 +40,12 @@ Output:
 - `--outdir <PATH>`: base output directory; files are always created under `<PATH>/chains/`
 - `--gzip`: gzip-compress every split output file
 
+Distribution:
+- `--randomize`/`-R`: distribute chains across output files in random order instead of input order. Useful when the input is sorted by id or score, where the largest chains would otherwise all land in the first file; randomizing spreads them evenly across files.
+- `--seed <SEED>`: `u64` seed for `--randomize`, making the shuffle reproducible. When omitted, a time-based seed is chosen and logged at startup so the run can still be reproduced. Requires `--randomize`.
+
 Notes:
 - output names use `part.00001.<basename>.chain` and add `.gz` when `--gzip` is used
 - if the requested split threshold is larger than the number of chains, the tool produces a single output
 - when possible, that single output is created as a symlink to the original input file
+- `--randomize` only affects which file each chain lands in; every chain is written exactly once and no bytes are lost

@@ -10,8 +10,8 @@
   </span>
 
   <p align="center">
-    <a href="https://img.shields.io/badge/version-0.0.4-green" target="_blank">
-      <img alt="Version Badge" src="https://img.shields.io/badge/version-0.0.4-green">
+    <a href="https://img.shields.io/badge/version-0.0.6-green" target="_blank">
+      <img alt="Version Badge" src="https://img.shields.io/badge/version-0.0.6-green">
     </a>
     <a href="https://crates.io/crates/chaintools" target="_blank">
       <img alt="Crates.io Version" src="https://img.shields.io/crates/v/chaintools">
@@ -29,7 +29,7 @@
         <span>work with .chain files in Rust</span>
         <br>
         <br>
-        <a href="https://docs.rs/chaintools/0.0.4/chaintools/">docs</a> .
+        <a href="https://docs.rs/chaintools/0.0.6/chaintools/">docs</a> .
         <a href="https://github.com/alejandrogzi/chaintools/tree/master/assets/usage/usage.md">usage</a> .
         <a href="https://github.com/alejandrogzi/chaintools/tree/master/assets/tools">tools</a> .
         <a href="https://genome.ucsc.edu/goldenpath/help/chain.html">chains</a> 
@@ -60,7 +60,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-chaintools = { version = "0.0.4", features = ["mmap", "gzip", "parallel"] }
+chaintools = { version = "0.0.6", features = ["mmap", "gzip", "parallel"] }
 ```
 ## Benchmarks
 
