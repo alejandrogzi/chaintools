@@ -4,6 +4,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use crate::model::error::ChainError;
+
 /// One alignment block.
 ///
 /// Represents a contiguous alignment region between reference and query sequences.
@@ -31,6 +33,119 @@ pub struct Block {
     pub size: u32,
     pub gap_reference: u32,
     pub gap_query: u32,
+}
+
+/// Alignment block represented with absolute reference and query coordinates.
+///
+/// This form is useful while constructing chains: callers can accumulate
+/// already-aligned intervals first, then convert them to UCSC dense chain
+/// blocks once neighboring gaps are known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AbsoluteBlock {
+    pub reference_start: u32,
+    pub reference_end: u32,
+    pub query_start: u32,
+    pub query_end: u32,
+}
+
+impl AbsoluteBlock {
+    /// Returns the reference interval length.
+    #[inline]
+    pub fn reference_len(&self) -> u32 {
+        self.reference_end.saturating_sub(self.reference_start)
+    }
+
+    /// Returns the query interval length.
+    #[inline]
+    pub fn query_len(&self) -> u32 {
+        self.query_end.saturating_sub(self.query_start)
+    }
+
+    /// Returns the aligned length when reference and query lengths match.
+    #[inline]
+    pub fn aligned_len(&self) -> Option<u32> {
+        let reference_len = self.reference_len();
+        if reference_len == self.query_len() {
+            Some(reference_len)
+        } else {
+            None
+        }
+    }
+
+    /// Returns true for a positive-length ungapped alignment interval.
+    #[inline]
+    pub fn is_gapless_match_block(&self) -> bool {
+        self.reference_end > self.reference_start
+            && self.query_end > self.query_start
+            && self.aligned_len().is_some()
+    }
+
+    /// Validates that both absolute intervals have positive length.
+    pub fn validate(&self) -> Result<(), ChainError> {
+        if self.reference_end <= self.reference_start {
+            return Err(block_error(
+                "absolute block reference interval is empty or inverted",
+            ));
+        }
+        if self.query_end <= self.query_start {
+            return Err(block_error(
+                "absolute block query interval is empty or inverted",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Converts absolute alignment blocks to UCSC dense chain blocks.
+///
+/// The input must be non-empty, sorted, non-overlapping, positive length, and
+/// each block must have the same reference and query length. Gaps are computed
+/// from neighboring absolute coordinates; the final dense block always carries
+/// zero gaps.
+pub fn absolute_to_dense_blocks(blocks: &[AbsoluteBlock]) -> Result<Vec<Block>, ChainError> {
+    if blocks.is_empty() {
+        return Err(block_error("absolute block list is empty"));
+    }
+
+    let mut dense = Vec::with_capacity(blocks.len());
+    for (index, block) in blocks.iter().copied().enumerate() {
+        block.validate()?;
+        let size = block
+            .aligned_len()
+            .ok_or_else(|| block_error("absolute block reference and query lengths differ"))?;
+
+        if let Some(next) = blocks.get(index + 1).copied() {
+            if next.reference_start <= block.reference_start {
+                return Err(block_error(
+                    "absolute blocks are not sorted by reference start",
+                ));
+            }
+            if next.query_start <= block.query_start {
+                return Err(block_error("absolute blocks are not sorted by query start"));
+            }
+            let gap_reference = next
+                .reference_start
+                .checked_sub(block.reference_end)
+                .ok_or_else(|| block_error("absolute block reference coordinates overlap"))?;
+            let gap_query = next
+                .query_start
+                .checked_sub(block.query_end)
+                .ok_or_else(|| block_error("absolute block query coordinates overlap"))?;
+            dense.push(Block {
+                size,
+                gap_reference,
+                gap_query,
+            });
+        } else {
+            dense.push(Block {
+                size,
+                gap_reference: 0,
+                gap_query: 0,
+            });
+        }
+    }
+
+    Ok(dense)
 }
 
 /// Borrowed slice of blocks stored contiguously.
@@ -63,6 +178,13 @@ pub struct Block {
 pub struct BlockSlice {
     storage: Arc<Vec<Block>>,
     range: Range<usize>,
+}
+
+fn block_error(message: impl Into<String>) -> ChainError {
+    ChainError::Format {
+        offset: 0,
+        msg: message.into().into(),
+    }
 }
 
 impl BlockSlice {

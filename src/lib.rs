@@ -16,6 +16,7 @@
 //! - **Streaming**: Low-memory streaming parser suitable for stdin and pipes
 //! - **Indexing**: Random access to individual chains with the `index` feature
 //! - **Compression**: Built-in gzip support with the `gzip` feature
+//! - **Writing**: Chain and metadata writers available without sequence support
 //! - **Feature-gated dependencies**: Minimal footprint by enabling only needed features
 //!
 //! ## Quick Start
@@ -89,6 +90,8 @@
 //! - `gzip`: Built-in gzip compression support
 //! - `index`: Random access indexing for chains
 //! - `parallel`: Multi-threaded parsing with rayon
+//! - `write`: Marker feature for writer-only dependents; writers are exported unconditionally
+//! - `sequence`: Sequence loading and scoring support
 //! - `default`: Enables `mmap`
 //!
 //! ## Installation
@@ -106,7 +109,7 @@ pub mod parser;
 #[cfg(feature = "sequence")]
 pub mod seq;
 
-pub use model::block::{Block, BlockSlice};
+pub use model::block::{AbsoluteBlock, Block, BlockSlice, absolute_to_dense_blocks};
 pub use model::chain::{Chain, Strand};
 pub use model::error::ChainError;
 
@@ -114,12 +117,16 @@ pub use model::error::ChainError;
 pub use io::index::{ChainIndex, ChainSpan};
 pub use io::reader::Reader;
 pub use io::storage::ByteSlice;
-pub use io::stream::{OwnedChain, OwnedChainHeader, StreamItem, StreamingReader};
-#[cfg(feature = "sequence")]
-pub use io::writer::{write_chain_dense, write_chain_header, write_dense_blocks};
+pub use io::stream::{OwnedChain, OwnedChainHeader, OwnedChainParts, StreamItem, StreamingReader};
+pub use io::writer::{
+    write_chain_dense, write_chain_header, write_dense_blocks, write_metadata_line,
+    write_metadata_lines,
+};
 
 #[cfg(feature = "sequence")]
-pub use seq::score::chainscore::{ChainScorer, ScoreConfig};
+pub use seq::score::chainscore::{
+    ChainScorer, ScoreConfig, score_absolute_block, score_absolute_blocks, score_ungapped_slices,
+};
 #[cfg(feature = "sequence")]
 pub use seq::score::gapcalc::GapCalc;
 #[cfg(feature = "sequence")]

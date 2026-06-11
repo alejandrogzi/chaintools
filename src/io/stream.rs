@@ -10,7 +10,7 @@ use flate2::read::MultiGzDecoder;
 #[cfg(not(feature = "gzip"))]
 use crate::io::storage::gzip_feature_error;
 use crate::io::storage::is_gz_path;
-use crate::model::block::Block;
+use crate::model::block::{AbsoluteBlock, Block, absolute_to_dense_blocks};
 use crate::model::chain::Strand;
 use crate::model::error::ChainError;
 use crate::parser::common::{is_blank, parse_block, parse_header_with_default_id};
@@ -79,6 +79,22 @@ pub struct OwnedChain {
     pub query_end: u32,
     pub id: u64,
     pub blocks: Vec<Block>,
+}
+
+/// Header fields needed to construct an [`OwnedChain`] from absolute blocks.
+///
+/// The start/end span fields are derived from the first and last
+/// [`AbsoluteBlock`], so callers only provide stable chain metadata here.
+#[derive(Debug, Clone)]
+pub struct OwnedChainParts {
+    pub score: i64,
+    pub reference_name: Vec<u8>,
+    pub reference_size: u32,
+    pub reference_strand: Strand,
+    pub query_name: Vec<u8>,
+    pub query_size: u32,
+    pub query_strand: Strand,
+    pub id: u64,
 }
 
 /// Owned chain header representation for streaming mode.
@@ -150,6 +166,41 @@ pub struct OwnedChainHeader {
 pub enum StreamItem {
     MetaLine(Vec<u8>),
     Header(OwnedChainHeader),
+}
+
+impl OwnedChain {
+    /// Builds an owned chain from absolute alignment blocks.
+    ///
+    /// The chain span is derived from the first and last absolute block and the
+    /// dense block list is produced by [`absolute_to_dense_blocks`].
+    pub fn from_absolute_blocks(
+        parts: OwnedChainParts,
+        blocks: &[AbsoluteBlock],
+    ) -> Result<Self, ChainError> {
+        let dense_blocks = absolute_to_dense_blocks(blocks)?;
+        let first = blocks
+            .first()
+            .expect("absolute_to_dense_blocks rejects empty block lists");
+        let last = blocks
+            .last()
+            .expect("absolute_to_dense_blocks rejects empty block lists");
+
+        Ok(OwnedChain {
+            score: parts.score,
+            reference_name: parts.reference_name,
+            reference_size: parts.reference_size,
+            reference_strand: parts.reference_strand,
+            reference_start: first.reference_start,
+            reference_end: last.reference_end,
+            query_name: parts.query_name,
+            query_size: parts.query_size,
+            query_strand: parts.query_strand,
+            query_start: first.query_start,
+            query_end: last.query_end,
+            id: parts.id,
+            blocks: dense_blocks,
+        })
+    }
 }
 
 impl OwnedChainHeader {

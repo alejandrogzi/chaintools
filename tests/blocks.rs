@@ -1,4 +1,4 @@
-use chaintools::{Block, BlockSlice};
+use chaintools::{AbsoluteBlock, Block, BlockSlice, absolute_to_dense_blocks};
 use std::sync::Arc;
 
 #[test]
@@ -147,4 +147,89 @@ fn block_slice_clone() {
     let cloned_slice = slice.clone();
     assert_eq!(slice.as_slice().len(), cloned_slice.as_slice().len());
     assert_eq!(slice.as_slice()[0], cloned_slice.as_slice()[0]);
+}
+
+#[test]
+fn absolute_block_lengths_and_validation() {
+    let block = AbsoluteBlock {
+        reference_start: 10,
+        reference_end: 25,
+        query_start: 100,
+        query_end: 115,
+    };
+
+    assert_eq!(block.reference_len(), 15);
+    assert_eq!(block.query_len(), 15);
+    assert_eq!(block.aligned_len(), Some(15));
+    assert!(block.is_gapless_match_block());
+    assert!(block.validate().is_ok());
+}
+
+#[test]
+fn absolute_to_dense_blocks_computes_gaps() {
+    let blocks = [
+        AbsoluteBlock {
+            reference_start: 10,
+            reference_end: 20,
+            query_start: 50,
+            query_end: 60,
+        },
+        AbsoluteBlock {
+            reference_start: 25,
+            reference_end: 35,
+            query_start: 61,
+            query_end: 71,
+        },
+    ];
+
+    let dense = absolute_to_dense_blocks(&blocks).expect("convert absolute blocks");
+    assert_eq!(
+        dense,
+        vec![
+            Block {
+                size: 10,
+                gap_reference: 5,
+                gap_query: 1,
+            },
+            Block {
+                size: 10,
+                gap_reference: 0,
+                gap_query: 0,
+            },
+        ]
+    );
+}
+
+#[test]
+fn absolute_to_dense_blocks_rejects_overlaps() {
+    let blocks = [
+        AbsoluteBlock {
+            reference_start: 10,
+            reference_end: 20,
+            query_start: 50,
+            query_end: 60,
+        },
+        AbsoluteBlock {
+            reference_start: 19,
+            reference_end: 30,
+            query_start: 61,
+            query_end: 72,
+        },
+    ];
+
+    let err = absolute_to_dense_blocks(&blocks).unwrap_err();
+    assert!(err.to_string().contains("reference coordinates overlap"));
+}
+
+#[test]
+fn absolute_to_dense_blocks_rejects_length_mismatch() {
+    let blocks = [AbsoluteBlock {
+        reference_start: 10,
+        reference_end: 20,
+        query_start: 50,
+        query_end: 61,
+    }];
+
+    let err = absolute_to_dense_blocks(&blocks).unwrap_err();
+    assert!(err.to_string().contains("lengths differ"));
 }

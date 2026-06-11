@@ -157,6 +157,33 @@ pub fn write_dense_blocks<W: Write>(writer: &mut W, blocks: &[Block]) -> Result<
     Ok(())
 }
 
+/// Writes one metadata/comment line followed by a newline.
+///
+/// The line is not modified: callers that want comment output should include
+/// the leading `#` themselves. Embedded newlines are rejected so one call cannot
+/// accidentally produce multiple output records.
+pub fn write_metadata_line<W: Write>(writer: &mut W, line: &[u8]) -> Result<(), ChainError> {
+    if line.contains(&b'\n') {
+        return Err(writer_error("metadata line contains an embedded newline"));
+    }
+    writer.write_all(line)?;
+    writer.write_all(b"\n")?;
+    Ok(())
+}
+
+/// Writes multiple metadata/comment lines.
+pub fn write_metadata_lines<W, I, B>(writer: &mut W, lines: I) -> Result<(), ChainError>
+where
+    W: Write,
+    I: IntoIterator<Item = B>,
+    B: AsRef<[u8]>,
+{
+    for line in lines {
+        write_metadata_line(writer, line.as_ref())?;
+    }
+    Ok(())
+}
+
 /// Trait for types that can be written as chain records.
 ///
 /// Provides a generic interface for writing both `OwnedChain` and
@@ -301,5 +328,12 @@ fn strand_to_byte(strand: Strand) -> u8 {
     match strand {
         Strand::Plus => b'+',
         Strand::Minus => b'-',
+    }
+}
+
+fn writer_error(message: impl Into<String>) -> ChainError {
+    ChainError::Format {
+        offset: 0,
+        msg: message.into().into(),
     }
 }

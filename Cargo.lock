@@ -66,10 +66,11 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "chaintools"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "clap",
  "flate2",
+ "genepred",
  "log",
  "memchr",
  "memmap2",
@@ -192,6 +193,15 @@ dependencies = [
  "crc32fast",
  "libz-rs-sys",
  "miniz_oxide",
+]
+
+[[package]]
+name = "genepred"
+version = "0.0.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4de1ae3153e877a8d439a029b96fceb6af0f338c2b2c39da35690f26db446171"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

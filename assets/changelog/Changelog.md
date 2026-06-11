@@ -5,6 +5,74 @@ All notable changes to **chaintools** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.7] - 2026-06-11
+
+### Added
+
+- **New `bed` subcommand** — `chaintools bed` converts chain files to BED format,
+  supporting BED3, BED6, and BED12 output. Chains can be read from standard input,
+  explicit file arguments (`-c`/`--chains`), or path-list files (`-f`/`--file`).
+  Options include `--spanned` (emit the full chain span as a single block),
+  `--sort-by` (coordinate or score ordering), `--side` (reference or query
+  coordinates), `--type` (BED variant selection), `--out-bed` (write to file),
+  and `--gzip` (compress output). Input/output path conflict detection prevents
+  accidental overwrites.
+
+- **Chain construction from absolute blocks** — `OwnedChain::from_absolute_blocks`
+  builds complete owned chains from absolute alignment coordinates, converting
+  them to UCSC dense chain blocks via `absolute_to_dense_blocks`. This enables
+  callers to accumulate aligned intervals first and derive block gaps later, which
+  is the foundation for axtChain-compatible workflows.
+
+- **`AbsoluteBlock` model type** — A new coordinate representation for alignment
+  blocks using absolute reference/query start and end positions, with validation,
+  interval-length helpers, and overlap detection. The `absolute_to_dense_blocks`
+  function converts a sorted, non-overlapping list into the UCSC dense block
+  format (computing gap sizes from neighboring absolute coordinates).
+
+- **Metadata writer API** — `write_metadata_line` and `write_metadata_lines` in
+  the `io::writer` module allow writing comment and metadata lines to chain
+  output streams. These are now unconditionally exported (previously gated behind
+  the `sequence` feature).
+
+- **Public scoring functions** — `score_ungapped_slices`, `score_absolute_block`,
+  and `score_absolute_blocks` are now exported from the `seq::score::chainscore`
+  module, enabling UCSC chainScore computation directly from absolute alignment
+  coordinates and ungapped slices.
+
+- **`SequenceResolver` convenience methods** — `preload` (alias for
+  `new_filtered`), `sequence` (borrow a full sequence slice), and `sequence_len`
+  (query decoded sequence length) make the resolver easier to use without
+  allocating copied ranges.
+
+- **Standalone `revcomp` module** — Reverse-complement logic extracted from
+  `antirepeat` into `seq::revcomp`, with `complement_base`,
+  `reverse_complement_in_place`, and `reverse_complement`. Full IUPAC ambiguity
+  code support and case preservation, with dedicated unit tests.
+
+### Changed
+
+- `write_chain_dense`, `write_chain_header`, and `write_dense_blocks` are no
+  longer behind the `sequence` feature gate; they are always available.
+- Import ordering and minor formatting alignment across `merge`, `sort`, and
+  `split` modules.
+- The `--level` short flag `-L` was removed from the global CLI to avoid
+  conflicts with subcommand flags; `--level` (long form) remains.
+
+### Documentation
+
+- `bed` subcommand is integrated into the CLI help and dispatch.
+
+### Notes
+
+- 94 binary tests + 83 lib/integration tests pass, including 18 new ones
+  spanning BED output correctness, chain-from-absolute-blocks construction,
+  absolute block validation and gap computation, metadata writer safety,
+  revcomplement IUPAC handling, sequence resolver preloading, and scoring of
+  absolute blocks with gap cost. gzip-feature tests pass too.
+- End-to-end: confirmed `chaintools bed` produces valid BED12 records on
+  real chain files, with correct coordinate ordering and block structure.
+
 ## [0.0.6] - 2026-06-10
 
 ### Added
@@ -127,6 +195,7 @@ First stable release.
 - Automatic gzip (`.chain.gz`) detection and decompression (`gzip` feature).
 - Test suite, benchmark binary, CI workflows, Docker image, and rustdoc documentation.
 
+[0.0.7]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.7
 [0.0.6]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.6
 [0.0.5]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.5
 [0.0.4]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.4

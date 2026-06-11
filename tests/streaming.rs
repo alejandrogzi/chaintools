@@ -1,4 +1,4 @@
-use chaintools::{StreamItem, StreamingReader};
+use chaintools::{AbsoluteBlock, OwnedChain, OwnedChainParts, Strand, StreamItem, StreamingReader};
 use std::io::{BufReader, Cursor};
 
 const SIMPLE_CHAIN: &str = "chain 100 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n50\n50\n\n";
@@ -195,4 +195,47 @@ fn streaming_reader_from_path() {
 
     // Clean up
     fs::remove_file(temp_file).expect("Should remove temp file");
+}
+
+#[test]
+fn owned_chain_from_absolute_blocks_sets_spans_and_dense_blocks() {
+    let parts = OwnedChainParts {
+        score: 123,
+        reference_name: b"chr1".to_vec(),
+        reference_size: 1000,
+        reference_strand: Strand::Plus,
+        query_name: b"chr2".to_vec(),
+        query_size: 2000,
+        query_strand: Strand::Minus,
+        id: 42,
+    };
+    let blocks = [
+        AbsoluteBlock {
+            reference_start: 100,
+            reference_end: 120,
+            query_start: 500,
+            query_end: 520,
+        },
+        AbsoluteBlock {
+            reference_start: 130,
+            reference_end: 150,
+            query_start: 525,
+            query_end: 545,
+        },
+    ];
+
+    let chain = OwnedChain::from_absolute_blocks(parts, &blocks).expect("construct chain");
+    assert_eq!(chain.score, 123);
+    assert_eq!(chain.reference_start, 100);
+    assert_eq!(chain.reference_end, 150);
+    assert_eq!(chain.query_start, 500);
+    assert_eq!(chain.query_end, 545);
+    assert_eq!(chain.query_strand, Strand::Minus);
+    assert_eq!(chain.id, 42);
+    assert_eq!(chain.blocks.len(), 2);
+    assert_eq!(chain.blocks[0].size, 20);
+    assert_eq!(chain.blocks[0].gap_reference, 10);
+    assert_eq!(chain.blocks[0].gap_query, 5);
+    assert_eq!(chain.blocks[1].gap_reference, 0);
+    assert_eq!(chain.blocks[1].gap_query, 0);
 }

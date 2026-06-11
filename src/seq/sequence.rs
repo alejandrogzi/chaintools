@@ -110,6 +110,18 @@ impl SequenceResolver {
         Self::new_filtered(path, None)
     }
 
+    /// Preloads either all sequences or only the named 2bit sequences.
+    ///
+    /// This is a clearer alias for [`SequenceResolver::new_filtered`] when
+    /// callers want predictable zero-copy full-sequence access through
+    /// [`SequenceResolver::sequence`].
+    pub fn preload<P: AsRef<Path>>(
+        path: P,
+        names: Option<&HashSet<Vec<u8>>>,
+    ) -> Result<Self, ChainError> {
+        Self::new_filtered(path, names)
+    }
+
     /// Creates a resolver, preloading either all sequences or only those named.
     ///
     /// Both 2bit and FASTA inputs are decoded fully into memory up front (the
@@ -211,6 +223,15 @@ impl SequenceResolver {
     ///
     /// Returns `Ok(&[u8])` with the full sequence, or `Err(ChainError)`
     pub fn chromosome(&self, seq_name: &[u8]) -> Result<&[u8], ChainError> {
+        self.sequence(seq_name)
+    }
+
+    /// Borrows a full decoded sequence from the preloaded sequence map.
+    ///
+    /// This returns a zero-copy slice into the in-memory sequence instead of
+    /// allocating a copied range. A missing name yields
+    /// [`ChainError::MissingSequence`], matching [`SequenceResolver::fetch`].
+    pub fn sequence(&self, seq_name: &[u8]) -> Result<&[u8], ChainError> {
         match &self.source {
             SequenceSource::Loaded { sequences, .. } => sequences
                 .get(seq_name)
@@ -222,6 +243,13 @@ impl SequenceResolver {
                 Err(sequence_error("chromosome() requires preloaded sequences"))
             }
         }
+    }
+
+    /// Returns the full decoded sequence length.
+    pub fn sequence_len(&self, seq_name: &[u8]) -> Result<u32, ChainError> {
+        let len = self.sequence(seq_name)?.len();
+        u32::try_from(len)
+            .map_err(|_| sequence_error("sequence length exceeds u32 coordinate space"))
     }
 }
 
@@ -745,5 +773,30 @@ fn bytes_to_utf8<'a>(value: &'a [u8], context: &str) -> Result<&'a str, ChainErr
 fn sequence_error(message: impl Into<String>) -> ChainError {
     ChainError::Unsupported {
         msg: message.into().into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn preload_sequence_and_len_from_fasta() {
+        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "chaintools-sequence-test-{}-{id}.fa",
+            std::process::id()
+        ));
+        std::fs::write(&path, b">chr1 description\nACGTnn\n").expect("write FASTA");
+
+        let resolver = SequenceResolver::preload(&path, None).expect("preload FASTA");
+        assert_eq!(resolver.sequence(b"chr1").unwrap(), b"ACGTnn");
+        assert_eq!(resolver.chromosome(b"chr1").unwrap(), b"ACGTnn");
+        assert_eq!(resolver.sequence_len(b"chr1").unwrap(), 6);
+
+        std::fs::remove_file(path).expect("remove FASTA");
     }
 }
