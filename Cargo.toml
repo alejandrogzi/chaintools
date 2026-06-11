@@ -1,6 +1,6 @@
 [package]
 name = "chaintools"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 authors = ["alejandrogzi <alejandrxgzi@gmail.com>"]
 license = "MIT"
@@ -12,17 +12,19 @@ keywords = ["chain", "lib", "genomic", "tool"]
 default-run = "chaintools"
 
 [features]
-default = ["mmap", "cli"]
-cli = ["dep:clap", "dep:log", "dep:simple_logger", "sequence", "dep:num_cpus", "parallel"]
+default = ["mmap"]
+cli = ["dep:clap", "dep:genepred", "dep:log", "dep:simple_logger", "sequence", "write", "dep:num_cpus", "parallel"]
 mmap = ["memmap2"]
 gzip = ["dep:flate2", "flate2/zlib-rs"]
 parallel = ["rayon"]
 index = []
+write = []
 sequence = ["dep:twobit"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }
 flate2 = { version = "1", optional = true, default-features = false }
+genepred = { version = "0.0.13", optional = true }
 memchr = "2"
 memmap2 = { version = "0.9", optional = true }
 rayon = { version = "1", optional = true }
@@ -39,6 +41,7 @@ required-features = ["cli"]
 [[bin]]
 name = "benchmark"
 path = "bench/benchmark.rs"
+required-features = ["cli"]
 
 [profile.release]
 lto = true

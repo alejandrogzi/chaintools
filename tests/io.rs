@@ -1,4 +1,4 @@
-use chaintools::{Reader, StreamingReader};
+use chaintools::{Reader, StreamingReader, write_metadata_line, write_metadata_lines};
 
 #[cfg(feature = "index")]
 use chaintools::ChainIndex;
@@ -92,4 +92,26 @@ fn chain_index_over_gzip_file() {
         "unexpected chain content: {}",
         chain
     );
+}
+
+#[test]
+fn writer_writes_metadata_lines_without_mutating_prefixes() {
+    let mut out = Vec::new();
+    write_metadata_line(&mut out, b"#scoreScheme default").expect("write comment");
+    write_metadata_lines(
+        &mut out,
+        [b"plain metadata".as_slice(), b"#kept".as_slice()],
+    )
+    .expect("write metadata lines");
+
+    assert_eq!(out, b"#scoreScheme default\nplain metadata\n#kept\n");
+}
+
+#[test]
+fn writer_rejects_embedded_metadata_newline() {
+    let mut out = Vec::new();
+    let err = write_metadata_line(&mut out, b"#one\n#two").unwrap_err();
+
+    assert!(err.to_string().contains("embedded newline"));
+    assert!(out.is_empty());
 }

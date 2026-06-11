@@ -10,5 +10,6 @@
 //! [`score`] subsystem (UCSC `chainScore`-compatible rescoring).
 
 pub mod antirepeat;
+pub mod revcomp;
 pub mod score;
 pub mod sequence;

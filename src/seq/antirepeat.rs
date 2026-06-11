@@ -5,6 +5,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::model::error::ChainError;
+use crate::seq::revcomp::complement_base;
+pub use crate::seq::revcomp::reverse_complement_in_place;
 use crate::seq::sequence::SequenceResolver;
 use crate::{OwnedChain, Strand};
 
@@ -12,7 +14,6 @@ const OK_BEST2: f64 = 0.80;
 const MAX_OVER_OK: f64 = 1.0 - OK_BEST2;
 const NT_VAL: [i8; 256] = build_nt_val();
 const IS_LOWER_DNA: [bool; 256] = build_lower_dna();
-const COMPLEMENT: [u8; 256] = build_complement_table();
 
 /// Configuration for the anti-repeat filter.
 ///
@@ -212,8 +213,10 @@ impl AntiRepeatEngine {
         // the original "reject on degeneracy, otherwise check repeats" decision
         // bit-for-bit; both are pure functions of the counts, so computing the
         // repeat counts unconditionally cannot change the result.
-        Ok(evaluate_degeneracy(&counts, chain.score, self.config.min_score)
-            && evaluate_repeat(rep_count, total, chain.score, self.config.min_score))
+        Ok(
+            evaluate_degeneracy(&counts, chain.score, self.config.min_score)
+                && evaluate_repeat(rep_count, total, chain.score, self.config.min_score),
+        )
     }
 }
 
@@ -302,7 +305,7 @@ fn count_blocks_minus(t_span: &[u8], q_chr: &[u8], chain: &OwnedChain) -> ([i32;
         let q_top = (chain.query_size - 1 - q_cursor) as usize;
 
         for i in 0..size {
-            let q_byte = COMPLEMENT[q_chr[q_top - i] as usize];
+            let q_byte = complement_base(q_chr[q_top - i]);
             accumulate(t_block[i], q_byte, &mut counts, &mut rep_count);
         }
 
@@ -423,44 +426,6 @@ pub fn repeat_filter(target: &[u8], query: &[u8], chain: &OwnedChain, min_score:
     evaluate_repeat(rep_count, total, chain.score, min_score)
 }
 
-/// Performs in-place reverse complement of a DNA sequence.
-///
-/// Converts a DNA sequence to its reverse complement, replacing each
-/// base with its complement (A<->T, C<->G) and reversing the order.
-/// Preserves case: uppercase stays uppercase, lowercase stays lowercase.
-///
-/// # Arguments
-///
-/// * `sequence` - Mutable reference to the sequence to transform
-///
-/// # Examples
-///
-/// ```ignore
-/// use chaintools::seq::antirepeat::reverse_complement_in_place;
-///
-/// let mut seq = b"ACGT".to_vec();
-/// reverse_complement_in_place(&mut seq);
-/// assert_eq!(&seq, b"ACGT"); // Reversed: "GTCA" -> complement "CATG" -> reverse
-///
-/// let mut seq2 = b"AcgT".to_vec();
-/// reverse_complement_in_place(&mut seq2);
-/// assert_eq!(&seq2, b"aCgT");
-/// ```
-pub fn reverse_complement_in_place(sequence: &mut [u8]) {
-    let len = sequence.len();
-    for i in 0..(len / 2) {
-        let j = len - 1 - i;
-        let left = COMPLEMENT[sequence[i] as usize];
-        let right = COMPLEMENT[sequence[j] as usize];
-        sequence[i] = right;
-        sequence[j] = left;
-    }
-    if len % 2 == 1 {
-        let mid = len / 2;
-        sequence[mid] = COMPLEMENT[sequence[mid] as usize];
-    }
-}
-
 /// Borrows the aligned window `[start, end)` from a chromosome.
 ///
 /// Validates `start <= end` and `end <= chr.len()` before slicing, returning the
@@ -568,27 +533,6 @@ const fn build_lower_dna() -> [bool; 256] {
     table[b'g' as usize] = true;
     table[b't' as usize] = true;
     table[b'n' as usize] = true;
-    table
-}
-
-const fn build_complement_table() -> [u8; 256] {
-    let mut table = [0; 256];
-    let mut idx = 0;
-    while idx < 256 {
-        table[idx] = idx as u8;
-        idx += 1;
-    }
-
-    table[b'A' as usize] = b'T';
-    table[b'a' as usize] = b't';
-    table[b'C' as usize] = b'G';
-    table[b'c' as usize] = b'g';
-    table[b'G' as usize] = b'C';
-    table[b'g' as usize] = b'c';
-    table[b'T' as usize] = b'A';
-    table[b't' as usize] = b'a';
-    table[b'N' as usize] = b'N';
-    table[b'n' as usize] = b'n';
     table
 }
 
@@ -719,17 +663,11 @@ mod tests {
     // Reproduces exactly what chain_passes did before borrowing: copy the target
     // and query spans out of the chromosomes, reverse-complement the query for
     // minus strand, then run the span-relative kernel.
-    fn old_counts(
-        reference: &[u8],
-        query: &[u8],
-        chain: &OwnedChain,
-    ) -> ([i32; 5], u64, u64) {
+    fn old_counts(reference: &[u8], query: &[u8], chain: &OwnedChain) -> ([i32; 5], u64, u64) {
         let t_seq =
             reference[chain.reference_start as usize..chain.reference_end as usize].to_vec();
         let q_seq = match chain.query_strand {
-            Strand::Plus => {
-                query[chain.query_start as usize..chain.query_end as usize].to_vec()
-            }
+            Strand::Plus => query[chain.query_start as usize..chain.query_end as usize].to_vec(),
             Strand::Minus => {
                 let fetch_start = (chain.query_size - chain.query_end) as usize;
                 let q_length = (chain.query_end - chain.query_start) as usize;
@@ -742,11 +680,7 @@ mod tests {
     }
 
     // Mirrors the new chain_passes data flow: borrow spans, complement on the fly.
-    fn new_counts(
-        reference: &[u8],
-        query: &[u8],
-        chain: &OwnedChain,
-    ) -> ([i32; 5], u64, u64) {
+    fn new_counts(reference: &[u8], query: &[u8], chain: &OwnedChain) -> ([i32; 5], u64, u64) {
         let t_span = &reference[chain.reference_start as usize..chain.reference_end as usize];
         match chain.query_strand {
             Strand::Plus => count_blocks(

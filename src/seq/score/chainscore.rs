@@ -14,8 +14,9 @@
 
 use std::path::Path;
 
+use crate::model::block::AbsoluteBlock;
 use crate::model::error::ChainError;
-use crate::seq::antirepeat::reverse_complement_in_place;
+use crate::seq::revcomp::reverse_complement_in_place;
 use crate::seq::score::gapcalc::GapCalc;
 use crate::seq::score::scoring::{CompactMatrix, ScoreMatrix};
 use crate::seq::sequence::{SequenceCache, SequenceResolver};
@@ -173,14 +174,12 @@ impl ChainScorer {
                 .get(q_off..q_off + size)
                 .ok_or_else(|| score_error("query block exceeds fetched sequence"))?;
 
-            for i in 0..size {
-                score += i64::from(self.compact.pair(q_block[i], t_block[i]));
-            }
+            score += score_ungapped_slices(q_block, t_block, &self.compact);
 
             if index + 1 < block_count {
-                let cost = self
-                    .gap
-                    .cost(block.gap_query as i32, block.gap_reference as i32);
+                let dq = gap_to_i32(block.gap_query, "query")?;
+                let dt = gap_to_i32(block.gap_reference, "reference")?;
+                let cost = self.gap.cost(dq, dt);
                 score -= i64::from(cost);
             }
 
@@ -192,10 +191,118 @@ impl ChainScorer {
     }
 }
 
+/// Scores two equal-length ungapped sequence slices.
+///
+/// The matrix is indexed as `matrix[query][reference]`, matching UCSC chain
+/// scoring. Panics if the slices have different lengths.
+#[inline]
+pub fn score_ungapped_slices(query: &[u8], reference: &[u8], matrix: &CompactMatrix) -> i64 {
+    assert_eq!(
+        query.len(),
+        reference.len(),
+        "ungapped scoring requires equal-length slices"
+    );
+    let mut score = 0i64;
+    for i in 0..query.len() {
+        score += i64::from(matrix.pair(query[i], reference[i]));
+    }
+    score
+}
+
+/// Scores one absolute, ungapped alignment block against full sequences.
+pub fn score_absolute_block(
+    block: AbsoluteBlock,
+    query_seq: &[u8],
+    reference_seq: &[u8],
+    matrix: &CompactMatrix,
+) -> Result<i64, ChainError> {
+    validate_score_block(block)?;
+    let reference = absolute_slice(
+        reference_seq,
+        block.reference_start,
+        block.reference_end,
+        "reference",
+    )?;
+    let query = absolute_slice(query_seq, block.query_start, block.query_end, "query")?;
+    Ok(score_ungapped_slices(query, reference, matrix))
+}
+
+/// Scores absolute alignment blocks as a candidate chain.
+///
+/// Each block contributes its ungapped slice score and each neighboring gap
+/// subtracts `gap.cost(dq, dt)`, where `dq` is the query gap and `dt` is the
+/// reference/target gap.
+pub fn score_absolute_blocks(
+    blocks: &[AbsoluteBlock],
+    query_seq: &[u8],
+    reference_seq: &[u8],
+    matrix: &CompactMatrix,
+    gap: &GapCalc,
+) -> Result<i64, ChainError> {
+    if blocks.is_empty() {
+        return Err(score_error("absolute block list is empty"));
+    }
+
+    let mut score = 0i64;
+    for (index, block) in blocks.iter().copied().enumerate() {
+        score += score_absolute_block(block, query_seq, reference_seq, matrix)?;
+
+        if let Some(next) = blocks.get(index + 1).copied() {
+            if next.reference_start <= block.reference_start {
+                return Err(score_error(
+                    "absolute blocks are not sorted by reference start",
+                ));
+            }
+            if next.query_start <= block.query_start {
+                return Err(score_error("absolute blocks are not sorted by query start"));
+            }
+
+            let dt = next
+                .reference_start
+                .checked_sub(block.reference_end)
+                .ok_or_else(|| score_error("absolute block reference coordinates overlap"))?;
+            let dq = next
+                .query_start
+                .checked_sub(block.query_end)
+                .ok_or_else(|| score_error("absolute block query coordinates overlap"))?;
+            score -= i64::from(gap.cost(gap_to_i32(dq, "query")?, gap_to_i32(dt, "reference")?));
+        }
+    }
+
+    Ok(score)
+}
+
 /// Computes `end - start`, erroring on underflow.
 fn span_len(start: u32, end: u32, label: &str) -> Result<u32, ChainError> {
     end.checked_sub(start)
         .ok_or_else(|| score_error(format!("{label} span underflows")))
+}
+
+fn validate_score_block(block: AbsoluteBlock) -> Result<(), ChainError> {
+    block.validate()?;
+    if block.aligned_len().is_none() {
+        return Err(score_error(
+            "absolute block reference and query lengths differ",
+        ));
+    }
+    Ok(())
+}
+
+fn absolute_slice<'a>(
+    seq: &'a [u8],
+    start: u32,
+    end: u32,
+    label: &str,
+) -> Result<&'a [u8], ChainError> {
+    if end < start {
+        return Err(score_error(format!("{label} span underflows")));
+    }
+    seq.get(start as usize..end as usize)
+        .ok_or_else(|| score_error(format!("{label} absolute block exceeds sequence")))
+}
+
+fn gap_to_i32(gap: u32, label: &str) -> Result<i32, ChainError> {
+    i32::try_from(gap).map_err(|_| score_error(format!("{label} gap exceeds i32 range")))
 }
 
 /// Creates an unsupported `ChainError` with a custom message.
@@ -208,7 +315,7 @@ fn score_error(message: impl Into<String>) -> ChainError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Block;
+    use crate::{AbsoluteBlock, Block};
     use std::fs::File;
     use std::io::BufWriter;
     use std::io::Write;
@@ -292,6 +399,75 @@ mod tests {
             GapCalc::default_costs(),
         )
         .expect("build scorer")
+    }
+
+    #[test]
+    fn score_ungapped_slices_scores_query_against_reference() {
+        let compact = ScoreMatrix::default_dna().compact();
+        assert_eq!(score_ungapped_slices(b"CN", b"AC", &compact), -114);
+    }
+
+    #[test]
+    fn score_absolute_block_scores_full_sequence_slices() {
+        let compact = ScoreMatrix::default_dna().compact();
+        let block = AbsoluteBlock {
+            reference_start: 2,
+            reference_end: 6,
+            query_start: 2,
+            query_end: 6,
+        };
+
+        let score =
+            score_absolute_block(block, b"GGACGTCC", b"TTACGTAA", &compact).expect("score block");
+        assert_eq!(score, 382);
+    }
+
+    #[test]
+    fn score_absolute_blocks_subtracts_query_gap_cost() {
+        let compact = ScoreMatrix::default_dna().compact();
+        let gap = GapCalc::default_costs();
+        let blocks = [
+            AbsoluteBlock {
+                reference_start: 0,
+                reference_end: 4,
+                query_start: 0,
+                query_end: 4,
+            },
+            AbsoluteBlock {
+                reference_start: 4,
+                reference_end: 8,
+                query_start: 6,
+                query_end: 10,
+            },
+        ];
+
+        let score = score_absolute_blocks(&blocks, b"ACGTNNACGT", b"ACGTACGT", &compact, &gap)
+            .expect("score absolute blocks");
+        assert_eq!(score, 404);
+    }
+
+    #[test]
+    fn score_absolute_blocks_rejects_overlap() {
+        let compact = ScoreMatrix::default_dna().compact();
+        let gap = GapCalc::default_costs();
+        let blocks = [
+            AbsoluteBlock {
+                reference_start: 0,
+                reference_end: 4,
+                query_start: 0,
+                query_end: 4,
+            },
+            AbsoluteBlock {
+                reference_start: 3,
+                reference_end: 7,
+                query_start: 4,
+                query_end: 8,
+            },
+        ];
+
+        let err =
+            score_absolute_blocks(&blocks, b"ACGTACGT", b"ACGTACGT", &compact, &gap).unwrap_err();
+        assert!(err.to_string().contains("reference coordinates overlap"));
     }
 
     #[test]

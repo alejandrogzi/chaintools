@@ -639,7 +639,7 @@ fn write_output_slice(
 
     #[cfg(feature = "gzip")]
     if gzip {
-        use flate2::{write::GzEncoder, Compression};
+        use flate2::{Compression, write::GzEncoder};
 
         let mut encoder = GzEncoder::new(writer, Compression::fast());
         for range in byte_ranges {
@@ -790,7 +790,9 @@ impl LoadedInput {
             }
             #[cfg(not(feature = "gzip"))]
             {
-                return Err(CliError::Chain(chaintools::io::storage::gzip_feature_error()));
+                return Err(CliError::Chain(
+                    chaintools::io::storage::gzip_feature_error(),
+                ));
             }
         }
 
@@ -852,7 +854,9 @@ impl LoadedInput {
             }
             #[cfg(not(feature = "gzip"))]
             {
-                return Err(CliError::Chain(chaintools::io::storage::gzip_feature_error()));
+                return Err(CliError::Chain(
+                    chaintools::io::storage::gzip_feature_error(),
+                ));
             }
         }
 
@@ -1349,10 +1353,12 @@ mod tests {
         );
 
         let split = output.join("chains").join("part.00001.sample.chain");
-        assert!(fs::symlink_metadata(&split)
-            .expect("metadata")
-            .file_type()
-            .is_symlink());
+        assert!(
+            fs::symlink_metadata(&split)
+                .expect("metadata")
+                .file_type()
+                .is_symlink()
+        );
     }
 
     #[test]

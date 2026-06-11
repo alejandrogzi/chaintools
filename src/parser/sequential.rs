@@ -8,7 +8,7 @@ use std::ops::Range;
 
 use crate::{Block, ChainError};
 
-use super::common::{is_blank, parse_block, parse_header_with_default_id, read_line, ChainMeta};
+use super::common::{ChainMeta, is_blank, parse_block, parse_header_with_default_id, read_line};
 
 /// Parses all chains from a byte buffer using sequential parsing.
 ///

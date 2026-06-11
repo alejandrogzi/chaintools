@@ -2,6 +2,7 @@
 // Distributed under the terms of the Apache License, Version 2.0.
 
 pub mod anti_repeat;
+pub mod bed;
 pub mod filter;
 pub mod merge;
 pub mod score;
@@ -38,7 +39,6 @@ pub struct Cli {
     threads: usize,
 
     #[arg(
-        short = 'L',
         long,
         global = true,
         value_name = "LEVEL",
@@ -60,6 +60,8 @@ enum Command {
         about = "Filter chains dominated by repeats or degenerate DNA"
     )]
     AntiRepeat(anti_repeat::AntiRepeatArgs),
+    #[command(about = "Convert chain files to BED")]
+    Bed(bed::BedArgs),
     #[command(about = "Filter chain files")]
     Filter(filter::FilterArgs),
     #[command(about = "Merge chain files")]
@@ -76,6 +78,7 @@ impl std::fmt::Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Command::AntiRepeat(_) => f.write_str("antirepeat"),
+            Command::Bed(_) => f.write_str("bed"),
             Command::Filter(_) => f.write_str("filter"),
             Command::Merge(_) => f.write_str("merge"),
             Command::Score(_) => f.write_str("score"),
@@ -180,6 +183,7 @@ where
 
     let result = match cli.command {
         Command::AntiRepeat(args) => anti_repeat::run(args, stdin, stdout, stderr),
+        Command::Bed(args) => bed::run(args, stdin, stdout, stderr),
         Command::Filter(args) => filter::run(args, stdin, stdout, stderr),
         Command::Merge(args) => merge::run(args, stdin, stdout, stderr),
         Command::Score(args) => score::run(args, stdin, stdout, stderr),
@@ -363,6 +367,15 @@ mod tests {
         assert_eq!(cli.threads, 2);
         assert_eq!(cli.level, Some(LevelFilter::Trace));
         assert!(matches!(cli.command, Command::Filter(_)));
+    }
+
+    #[test]
+    fn bed_long_short_parses_as_subcommand_flag() {
+        let cli = Cli::try_parse_from(["chaintools", "bed", "-L", "--side", "reference"])
+            .expect("bed long-format short flag should parse after subcommand");
+
+        assert_eq!(cli.level, None);
+        assert!(matches!(cli.command, Command::Bed(_)));
     }
 
     #[test]

@@ -8,13 +8,13 @@ use std::path::{Path, PathBuf};
 use chaintools::{OwnedChain, StreamingReader};
 use clap::{Args, ValueEnum};
 #[cfg(feature = "gzip")]
-use flate2::{write::GzEncoder, Compression};
+use flate2::{Compression, write::GzEncoder};
 
-use super::sort_core::{
-    emit_sorted_chains, with_merged_runs, write_metadata_lines, SortAccumulator, SortCriterion,
-    SortedInput, OUTPUT_BUFFER_CAPACITY,
-};
 use super::CliError;
+use super::sort_core::{
+    OUTPUT_BUFFER_CAPACITY, SortAccumulator, SortCriterion, SortedInput, emit_sorted_chains,
+    with_merged_runs, write_metadata_lines,
+};
 
 const BYTES_PER_GB: f64 = 1_000_000_000.0;
 const DEFAULT_MAX_GB: f64 = 16.0;
@@ -878,9 +878,10 @@ mod tests {
     fn gzip_output_requires_gzip_feature() {
         let err = run_err(vec![arg("--gzip")], SCORE_TIE_A.as_bytes());
 
-        assert!(err
-            .to_string()
-            .contains("--gzip requires chaintools to be built with the `gzip` feature"));
+        assert!(
+            err.to_string()
+                .contains("--gzip requires chaintools to be built with the `gzip` feature")
+        );
     }
 
     #[test]
@@ -890,18 +891,20 @@ mod tests {
             SCORE_TIE_A.as_bytes(),
         );
 
-        assert!(err
-            .to_string()
-            .contains("--out-index cannot be combined with --gzip"));
+        assert!(
+            err.to_string()
+                .contains("--out-index cannot be combined with --gzip")
+        );
     }
 
     #[test]
     fn zero_memory_budget_is_rejected() {
         let err = run_err(vec![arg("--max-gb"), arg("0")], SCORE_TIE_A.as_bytes());
 
-        assert!(err
-            .to_string()
-            .contains("--max-gb must be greater than zero"));
+        assert!(
+            err.to_string()
+                .contains("--max-gb must be greater than zero")
+        );
     }
 
     #[test]

@@ -11,8 +11,7 @@
 pub mod reader;
 pub mod storage;
 pub mod stream;
+pub mod writer;
 
 #[cfg(feature = "index")]
 pub mod index;
-#[cfg(feature = "sequence")]
-pub mod writer;
