@@ -119,8 +119,8 @@ pub use io::reader::Reader;
 pub use io::storage::ByteSlice;
 pub use io::stream::{OwnedChain, OwnedChainHeader, OwnedChainParts, StreamItem, StreamingReader};
 pub use io::writer::{
-    write_chain_dense, write_chain_header, write_dense_blocks, write_metadata_line,
-    write_metadata_lines,
+    write_chain_dense, write_chain_dense_with_id, write_chain_header, write_chain_header_with_id,
+    write_dense_blocks, write_metadata_line, write_metadata_lines,
 };
 
 #[cfg(feature = "sequence")]

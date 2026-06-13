@@ -53,6 +53,14 @@ Sort chain records from a chain file or standard input.
 - `--max-gb <GB>`: spill sorted runs to temporary files when the in-memory
   working set grows past this limit. The default is `8`.
 
+## Renaming
+
+- `--rename`/`-r`: reassign chain IDs sequentially in sorted output order, so
+  the first emitted chain gets `id 1`, the next `2`, and so on. The IDs follow
+  the selected `--sort-by` key (default `score`).
+- When combined with `--out-index`, the index offsets are computed against the
+  renamed output, so they stay consistent with the written bytes.
+
 ## Differences from UCSC chainSort / chainMergeSort
 
 - `sort` is the only user-facing sorting command. Large inputs are handled by
@@ -64,8 +72,9 @@ Sort chain records from a chain file or standard input.
   separate UCSC boolean flags.
 - Equal primary keys are normalized to a deterministic order. Ties are broken by
   chain id, then target fields, then query fields, then remaining chain content.
-- The implementation preserves existing chain ids. It does not renumber them
-  the way UCSC `chainMergeSort` does by default.
+- The implementation preserves existing chain ids by default. Pass `--rename`
+  to renumber them sequentially in sorted order, similar to UCSC
+  `chainMergeSort`.
 - `--out-index` is not allowed together with `--gzip` because index offsets are
   defined on uncompressed output bytes.
 - Metadata lines beginning with `#` are copied to the beginning of the output in

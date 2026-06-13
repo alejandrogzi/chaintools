@@ -5,6 +5,32 @@ All notable changes to **chaintools** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.8] - 2025-06-13
+
+### Added
+
+- **`--rename`/`-r` flag for `merge`** — `chaintools merge --rename` reassigns chain
+  IDs sequentially in sorted output order, so the first emitted chain receives
+  `id 1`, the next `2`, and so on. The flag implies sorting: it defaults to
+  `--sort-by score` when no key is given, and respects an explicit `--sort-by <KEY>`
+  when one is provided. Renaming is applied at final emission for both the in-memory
+  and external (spill-to-disk) merge paths, with no extra pass over the data. Backed
+  by new `write_chain_dense_with_id` / `write_chain_header_with_id` writer helpers.
+
+- **`--rename`/`-r` flag for `sort`** — `chaintools sort --rename` reassigns chain
+  IDs sequentially in sorted output order, following the selected `--sort-by` key
+  (default `score`). When combined with `--out-index`, the recorded offsets are
+  computed against the renamed output so they remain consistent with the written
+  bytes.
+
+### Changed
+
+- **`merge` deduplicates metadata** — when merging with `--sort-by`/`--rename`,
+  identical metadata (`#`) lines that appear in more than one input (for example,
+  files produced by a previous `split`) are now emitted once, in first-seen order.
+  Deduplication is performed at the byte level and does not affect `sort`, which
+  continues to preserve a single input's metadata verbatim.
+
 ## [0.0.7] - 2026-06-11
 
 ### Added
