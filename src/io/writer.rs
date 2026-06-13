@@ -49,6 +49,30 @@ pub fn write_chain_dense<W: Write>(writer: &mut W, chain: &OwnedChain) -> Result
     write_dense_blocks(writer, &chain.blocks)
 }
 
+/// Writes a chain in dense format with an overridden chain ID.
+///
+/// Identical to [`write_chain_dense`], except the header's `id` field is
+/// replaced by the provided `id` rather than the chain's own id. This is used
+/// by `merge --rename` to reassign sequential IDs without mutating the chain.
+///
+/// # Arguments
+///
+/// * `writer` - Output writer
+/// * `chain` - The owned chain to write
+/// * `id` - The chain ID to emit in the header
+///
+/// # Output
+///
+/// Returns `Ok(())` on success or `Err(ChainError)` on failure
+pub fn write_chain_dense_with_id<W: Write>(
+    writer: &mut W,
+    chain: &OwnedChain,
+    id: u64,
+) -> Result<(), ChainError> {
+    write_chain_header_with_id(writer, chain, id)?;
+    write_dense_blocks(writer, &chain.blocks)
+}
+
 /// Writes a chain header line.
 ///
 /// Writes the "chain" header line with all chain metadata in the standard format:
@@ -93,6 +117,33 @@ where
     W: Write,
     C: ChainLike,
 {
+    write_chain_header_with_id(writer, chain, chain.id())
+}
+
+/// Writes a chain header line with an overridden chain ID.
+///
+/// Identical to [`write_chain_header`], except the trailing `id` field is set
+/// to the provided `id` instead of the chain's own id. The chain's other
+/// fields are written unchanged.
+///
+/// # Arguments
+///
+/// * `writer` - Output writer
+/// * `chain` - The chain-like object to write (any type implementing ChainLike)
+/// * `id` - The chain ID to emit in the header
+///
+/// # Output
+///
+/// Returns `Ok(())` on success or `Err(ChainError)` on failure
+pub fn write_chain_header_with_id<W, C>(
+    writer: &mut W,
+    chain: &C,
+    id: u64,
+) -> Result<(), ChainError>
+where
+    W: Write,
+    C: ChainLike,
+{
     write!(writer, "chain {} ", chain.score())?;
     writer.write_all(chain.reference_name())?;
     write!(
@@ -111,7 +162,7 @@ where
         strand_to_byte(chain.query_strand()) as char,
         chain.query_start(),
         chain.query_end(),
-        chain.id()
+        id
     )?;
     Ok(())
 }

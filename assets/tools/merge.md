@@ -42,8 +42,14 @@ Sorting:
 - no `--sort-by`: merge input text in input order without reparsing
 - `--sort-by score|id|reference|query`: parse all inputs, sort deterministically, and write canonical chain text
 
+Renaming:
+- `--rename`/`-r`: reassign chain IDs sequentially in sorted output order, so the first emitted chain gets `id 1`, the next `2`, and so on
+- `--rename` implies sorting: it defaults to `--sort-by score` when no key is given, and respects an explicit `--sort-by <KEY>` when one is provided
+- renaming is applied only to the final sorted output (both the in-memory and external-merge paths); original IDs are otherwise preserved
+
 Notes:
 - `reference` is the target/reference-name sort used elsewhere as target sort
 - unsorted merge preserves input text order and only inserts record separators when needed between files
 - sorted merge preserves metadata lines, then emits sorted chains
+- sorted merge deduplicates metadata lines at the byte level: an identical metadata line appearing in more than one input (e.g. files produced by a previous split) is emitted once, in first-seen order
 - `--max-gb <GB>` controls the in-memory working set for sorted merge and defaults to `8`

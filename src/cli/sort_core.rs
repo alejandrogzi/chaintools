@@ -2,13 +2,15 @@
 // Distributed under the terms of the Apache License, Version 2.0.
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chaintools::{Block, OwnedChain, StreamItem, StreamingReader, write_chain_dense};
+use chaintools::{
+    Block, OwnedChain, StreamItem, StreamingReader, write_chain_dense, write_chain_dense_with_id,
+};
 #[cfg(feature = "parallel")]
 use rayon::prelude::ParallelSliceMut;
 
@@ -105,7 +107,10 @@ impl Drop for TempRun {
 /// * `max_in_memory_bytes` - Maximum bytes to keep in memory before spilling
 /// * `temp_dir` - Directory for temporary run files
 /// * `next_generated_id` - Counter for generated chain IDs
-/// * `metadata` - Preserved metadata lines (comments)
+/// * `metadata` - Preserved metadata lines (comments), in first-seen order
+/// * `dedup_metadata` - When `true`, identical metadata lines are emitted once
+/// * `seen_metadata` - Byte-level set of metadata lines already collected (used
+///   only when `dedup_metadata` is enabled)
 /// * `records` - Chains currently in memory
 /// * `runs` - Temporary run files for external sorting
 /// * `chunk_bytes` - Estimated memory usage of current records
@@ -116,6 +121,8 @@ pub(super) struct SortAccumulator<'a> {
     temp_dir: &'a Path,
     next_generated_id: u64,
     metadata: Vec<Vec<u8>>,
+    dedup_metadata: bool,
+    seen_metadata: HashSet<Vec<u8>>,
     records: Vec<OwnedChain>,
     runs: Vec<TempRun>,
     chunk_bytes: u64,
@@ -129,6 +136,7 @@ impl<'a> SortAccumulator<'a> {
         sort_by: SortCriterion,
         max_in_memory_bytes: u64,
         temp_dir: &'a Path,
+        dedup_metadata: bool,
     ) -> Self {
         Self {
             sort_by,
@@ -136,6 +144,8 @@ impl<'a> SortAccumulator<'a> {
             temp_dir,
             next_generated_id: 1,
             metadata: Vec::new(),
+            dedup_metadata,
+            seen_metadata: HashSet::new(),
             records: Vec::new(),
             runs: Vec::new(),
             chunk_bytes: 0,
@@ -153,7 +163,14 @@ impl<'a> SortAccumulator<'a> {
 
         while let Some(item) = reader.next_item()? {
             match item {
-                StreamItem::MetaLine(line) => self.metadata.push(line),
+                StreamItem::MetaLine(line) => {
+                    // Drop metadata lines already collected (e.g. identical
+                    // headers from previously split files). The set is keyed on
+                    // the raw bytes, so the comparison stays at the byte level.
+                    if !self.dedup_metadata || self.seen_metadata.insert(line.clone()) {
+                        self.metadata.push(line);
+                    }
+                }
                 StreamItem::Header(header) => {
                     let blocks = reader.read_blocks(header.offset)?;
                     let chain = header.into_chain(blocks);
@@ -240,6 +257,8 @@ impl<'a> SortAccumulator<'a> {
 /// * `writer` - Output writer
 /// * `sorted` - The sorted input (in-memory or runs)
 /// * `sort_by` - The sort criterion used
+/// * `rename` - When `true`, chain IDs are reassigned sequentially (`1, 2, 3, …`)
+///   in emission order; when `false`, each chain keeps its original ID
 ///
 /// # Output
 ///
@@ -248,16 +267,29 @@ pub(super) fn emit_sorted_chains<W: Write>(
     writer: &mut W,
     sorted: SortedInput,
     sort_by: SortCriterion,
+    rename: bool,
 ) -> Result<(), CliError> {
+    let mut next_id: u64 = 1;
     match sorted {
         SortedInput::InMemory(records) => {
             for chain in &records {
-                write_chain_dense(writer, chain)?;
+                if rename {
+                    write_chain_dense_with_id(writer, chain, next_id)?;
+                    next_id += 1;
+                } else {
+                    write_chain_dense(writer, chain)?;
+                }
             }
         }
         SortedInput::Runs(runs) => {
             with_merged_runs(&runs, sort_by, |chain| {
-                write_chain_dense(writer, chain).map_err(CliError::from)
+                if rename {
+                    write_chain_dense_with_id(writer, chain, next_id).map_err(CliError::from)?;
+                    next_id += 1;
+                    Ok(())
+                } else {
+                    write_chain_dense(writer, chain).map_err(CliError::from)
+                }
             })?;
         }
     }

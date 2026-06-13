@@ -5,16 +5,16 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
-use chaintools::{StreamingReader, io::storage::is_gz_path};
+use chaintools::{io::storage::is_gz_path, StreamingReader};
 use clap::{Args, ValueEnum};
 #[cfg(feature = "gzip")]
-use flate2::{Compression, read::MultiGzDecoder, write::GzEncoder};
+use flate2::{read::MultiGzDecoder, write::GzEncoder, Compression};
 
-use super::CliError;
 use super::sort_core::{
-    OUTPUT_BUFFER_CAPACITY, SortAccumulator, SortCriterion, emit_sorted_chains,
-    write_metadata_lines,
+    emit_sorted_chains, write_metadata_lines, SortAccumulator, SortCriterion,
+    OUTPUT_BUFFER_CAPACITY,
 };
+use super::CliError;
 
 const BYTES_PER_GB: f64 = 1_000_000_000.0;
 const DEFAULT_MAX_GB: f64 = 16.0;
@@ -67,9 +67,17 @@ pub struct MergeArgs {
         long = "sort-by",
         value_name = "KEY",
         value_enum,
-        help = "Sort merged output by the selected primary key"
+        help = "Sort merged output by the selected primary key [ options: score, id, reference, query ]"
     )]
     sort_by: Option<MergeSortBy>,
+
+    #[arg(
+        short = 'r',
+        long = "rename",
+        help = "Reassign chain IDs sequentially (1, 2, 3, …) in sorted output order. \
+                Implies --sort-by score unless another --sort-by key is given."
+    )]
+    rename: bool,
 
     #[arg(
         short = 'G',
@@ -185,12 +193,25 @@ where
         args.out_chain.display()
     );
 
-    if let Some(sort_by) = args.sort_by {
+    // `--rename` implies sorting; default to score when no key is given, but
+    // respect an explicit `--sort-by` key when one is provided.
+    let sort_by = args.sort_by.or(if args.rename {
+        Some(MergeSortBy::Score)
+    } else {
+        None
+    });
+
+    if let Some(sort_by) = sort_by {
         log::info!("merging sorted by {sort_by:?}");
+        if args.rename {
+            log::info!("renaming chain ids sequentially in sorted order");
+        }
         let max_in_memory_bytes = args.max_in_memory_bytes()?;
         let temp_dir = output_directory(&args.out_chain);
+        // Merge combines many files, so identical metadata lines (e.g. from
+        // previously split inputs) are deduplicated as they are collected.
         let mut accumulator =
-            SortAccumulator::new(sort_by.criterion(), max_in_memory_bytes, &temp_dir);
+            SortAccumulator::new(sort_by.criterion(), max_in_memory_bytes, &temp_dir, true);
 
         for path in &inputs {
             log::debug!("reading {}", path.display());
@@ -202,7 +223,7 @@ where
         let chains = accumulator.chains_pushed();
         let runs_spilled = accumulator.runs_spilled();
         let (metadata, sorted) = accumulator.finish()?;
-        emit_sorted_output(&args, &metadata, sorted, sort_by.criterion())?;
+        emit_sorted_output(&args, &metadata, sorted, sort_by.criterion(), args.rename)?;
         super::log_summary(
             "merge",
             &[
@@ -378,6 +399,7 @@ fn output_directory(out_chain: &Path) -> PathBuf {
 /// * `metadata` - Metadata lines to output
 /// * `sorted` - Sorted runs to merge
 /// * `sort_by` - Sort criterion
+/// * `rename` - When `true`, reassign chain IDs sequentially in output order
 ///
 /// # Output
 ///
@@ -387,13 +409,14 @@ fn emit_sorted_output(
     metadata: &[Vec<u8>],
     sorted: super::sort_core::SortedInput,
     sort_by: SortCriterion,
+    rename: bool,
 ) -> Result<(), CliError> {
     #[cfg(feature = "gzip")]
     if args.gzip {
         let writer = open_output_writer(&args.out_chain)?;
         let mut encoder = GzEncoder::new(writer, Compression::fast());
         write_metadata_lines(&mut encoder, metadata)?;
-        emit_sorted_chains(&mut encoder, sorted, sort_by)?;
+        emit_sorted_chains(&mut encoder, sorted, sort_by, rename)?;
         encoder.try_finish()?;
         encoder.get_mut().flush()?;
         return Ok(());
@@ -401,7 +424,7 @@ fn emit_sorted_output(
 
     let mut writer = open_output_writer(&args.out_chain)?;
     write_metadata_lines(&mut writer, metadata)?;
-    emit_sorted_chains(&mut writer, sorted, sort_by)?;
+    emit_sorted_chains(&mut writer, sorted, sort_by, rename)?;
     writer.flush()?;
     Ok(())
 }
@@ -770,10 +793,9 @@ mod tests {
             input.arg(),
         ]);
 
-        assert!(
-            err.to_string()
-                .contains("--out-chain must not be the same path as input chain")
-        );
+        assert!(err
+            .to_string()
+            .contains("--out-chain must not be the same path as input chain"));
     }
 
     #[test]
@@ -836,6 +858,144 @@ mod tests {
         );
     }
 
+    #[test]
+    fn merge_rename_defaults_to_score_order() {
+        let input_a = TempPath::new("chain");
+        let input_b = TempPath::new("chain");
+        let output = TempPath::new("chain");
+        // Lower score, originally id 7.
+        write_file(
+            &input_a.path,
+            b"chain 5 chr2 100 + 0 5 qry2 100 + 0 5 7\n5\n\n",
+        );
+        // Higher score, originally id 3.
+        write_file(
+            &input_b.path,
+            b"chain 9 chr1 100 + 0 5 qry1 100 + 0 5 3\n5\n\n",
+        );
+
+        run_ok(vec![
+            arg("--chains"),
+            input_a.arg(),
+            input_b.arg(),
+            arg("--out-chain"),
+            output.arg(),
+            arg("--rename"),
+        ]);
+
+        // --rename implies --sort-by score (descending), then ids become 1, 2.
+        assert_eq!(
+            std::fs::read_to_string(&output.path).unwrap(),
+            "chain 9 chr1 100 + 0 5 qry1 100 + 0 5 1\n5\n\nchain 5 chr2 100 + 0 5 qry2 100 + 0 5 2\n5\n\n"
+        );
+    }
+
+    #[test]
+    fn merge_rename_respects_explicit_sort_by() {
+        let input_a = TempPath::new("chain");
+        let input_b = TempPath::new("chain");
+        let output = TempPath::new("chain");
+        // Higher score but later reference; originally id 7.
+        write_file(
+            &input_a.path,
+            b"chain 9 chr2 100 + 0 5 qry2 100 + 0 5 7\n5\n\n",
+        );
+        // Lower score but earlier reference; originally id 3.
+        write_file(
+            &input_b.path,
+            b"chain 5 chr1 100 + 0 5 qry1 100 + 0 5 3\n5\n\n",
+        );
+
+        run_ok(vec![
+            arg("--chains"),
+            input_a.arg(),
+            input_b.arg(),
+            arg("--out-chain"),
+            output.arg(),
+            arg("--rename"),
+            arg("--sort-by"),
+            arg("reference"),
+        ]);
+
+        // Explicit --sort-by reference wins: chr1 first, then chr2; ids 1, 2.
+        assert_eq!(
+            std::fs::read_to_string(&output.path).unwrap(),
+            "chain 5 chr1 100 + 0 5 qry1 100 + 0 5 1\n5\n\nchain 9 chr2 100 + 0 5 qry2 100 + 0 5 2\n5\n\n"
+        );
+    }
+
+    #[test]
+    fn merge_rename_across_spill_path() {
+        let input_a = TempPath::new("chain");
+        let input_b = TempPath::new("chain");
+        let input_c = TempPath::new("chain");
+        let output = TempPath::new("chain");
+        write_file(
+            &input_a.path,
+            b"chain 5 chr3 100 + 0 5 qry3 100 + 0 5 50\n5\n\n",
+        );
+        write_file(
+            &input_b.path,
+            b"chain 9 chr1 100 + 0 5 qry1 100 + 0 5 60\n5\n\n",
+        );
+        write_file(
+            &input_c.path,
+            b"chain 7 chr2 100 + 0 5 qry2 100 + 0 5 70\n5\n\n",
+        );
+
+        // A tiny memory budget forces per-chain spilling, exercising the
+        // external k-way merge (SortedInput::Runs) emission path.
+        run_ok(vec![
+            arg("--chains"),
+            input_a.arg(),
+            input_b.arg(),
+            input_c.arg(),
+            arg("--out-chain"),
+            output.arg(),
+            arg("--rename"),
+            arg("--max-gb"),
+            arg("0.0000000001"),
+        ]);
+
+        // Score descending (9, 7, 5) renamed to 1, 2, 3.
+        assert_eq!(
+            std::fs::read_to_string(&output.path).unwrap(),
+            "chain 9 chr1 100 + 0 5 qry1 100 + 0 5 1\n5\n\nchain 7 chr2 100 + 0 5 qry2 100 + 0 5 2\n5\n\nchain 5 chr3 100 + 0 5 qry3 100 + 0 5 3\n5\n\n"
+        );
+    }
+
+    #[test]
+    fn merge_deduplicates_repeated_metadata() {
+        let input_a = TempPath::new("chain");
+        let input_b = TempPath::new("chain");
+        let output = TempPath::new("chain");
+        write_file(
+            &input_a.path,
+            b"#common\n#a-only\nchain 5 chr1 100 + 0 5 qry1 100 + 0 5 1\n5\n\n",
+        );
+        write_file(
+            &input_b.path,
+            b"#common\n#b-only\nchain 9 chr2 100 + 0 5 qry2 100 + 0 5 2\n5\n\n",
+        );
+
+        run_ok(vec![
+            arg("--chains"),
+            input_a.arg(),
+            input_b.arg(),
+            arg("--out-chain"),
+            output.arg(),
+            arg("--sort-by"),
+            arg("score"),
+        ]);
+
+        // `#common` appears in both inputs but is emitted once, in first-seen
+        // order; the unique metadata follows, then chains sorted by score.
+        assert_eq!(
+            std::fs::read_to_string(&output.path).unwrap(),
+            "#common\n#a-only\n#b-only\nchain 9 chr2 100 + 0 5 qry2 100 + 0 5 2\n5\n\nchain 5 chr1 100 + 0 5 qry1 100 + 0 5 1\n5\n\n"
+        );
+    }
+
     #[cfg(feature = "gzip")]
     #[test]
     fn merge_reads_gzip_input_and_writes_gzip_output() {
@@ -882,10 +1042,9 @@ mod tests {
             arg("--gzip"),
         ]);
 
-        assert!(
-            err.to_string()
-                .contains("--gzip requires chaintools to be built with the `gzip` feature")
-        );
+        assert!(err
+            .to_string()
+            .contains("--gzip requires chaintools to be built with the `gzip` feature"));
     }
 
     #[test]
@@ -905,9 +1064,8 @@ mod tests {
             arg("0"),
         ]);
 
-        assert!(
-            err.to_string()
-                .contains("--max-gb must be greater than zero")
-        );
+        assert!(err
+            .to_string()
+            .contains("--max-gb must be greater than zero"));
     }
 }

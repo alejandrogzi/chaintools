@@ -64,6 +64,13 @@ pub struct SortArgs {
     sort_by: SortBy,
 
     #[arg(
+        short = 'r',
+        long = "rename",
+        help = "Reassign chain IDs sequentially (1, 2, 3, …) in sorted output order, following the selected --sort-by key."
+    )]
+    rename: bool,
+
+    #[arg(
         short = 'I',
         long = "out-index",
         value_name = "PATH",
@@ -303,6 +310,9 @@ where
         args.sort_by,
         args.max_gb
     );
+    if args.rename {
+        log::info!("renaming chain ids sequentially in sorted order");
+    }
 
     let collected = if let Some(path) = &args.chain {
         let mut reader = StreamingReader::from_path(path)?;
@@ -432,8 +442,10 @@ fn collect_sorted_input<R: BufRead>(
     reader: &mut StreamingReader<R>,
     temp_dir: &Path,
 ) -> Result<CollectedInput, CliError> {
+    // Sort reads a single input, so metadata lines are preserved verbatim
+    // (no cross-file deduplication).
     let mut accumulator =
-        SortAccumulator::new(args.sort_by.criterion(), max_in_memory_bytes, temp_dir);
+        SortAccumulator::new(args.sort_by.criterion(), max_in_memory_bytes, temp_dir, false);
     accumulator.push_stream(reader)?;
     // Capture counts before `finish` consumes the accumulator.
     let chains = accumulator.chains_pushed();
@@ -472,7 +484,7 @@ fn emit_output<W: Write>(
         let writer = open_output_writer(args, stdout)?;
         let mut encoder = GzEncoder::new(writer, Compression::fast());
         write_metadata_lines(&mut encoder, metadata)?;
-        emit_sorted_chains(&mut encoder, sorted, args.sort_by.criterion())?;
+        emit_sorted_chains(&mut encoder, sorted, args.sort_by.criterion(), args.rename)?;
         encoder.try_finish()?;
         encoder.get_mut().flush()?;
         return Ok(());
@@ -484,13 +496,19 @@ fn emit_output<W: Write>(
         let mut index_writer =
             BufWriter::with_capacity(OUTPUT_BUFFER_CAPACITY, File::create(index_path)?);
         write_metadata_lines(&mut counted, metadata)?;
-        emit_sorted_chains_with_index(&mut counted, &mut index_writer, sorted, args.sort_by)?;
+        emit_sorted_chains_with_index(
+            &mut counted,
+            &mut index_writer,
+            sorted,
+            args.sort_by,
+            args.rename,
+        )?;
         counted.flush()?;
         index_writer.flush()?;
     } else {
         let mut writer = writer;
         write_metadata_lines(&mut writer, metadata)?;
-        emit_sorted_chains(&mut writer, sorted, args.sort_by.criterion())?;
+        emit_sorted_chains(&mut writer, sorted, args.sort_by.criterion(), args.rename)?;
         writer.flush()?;
     }
 
@@ -534,29 +552,48 @@ fn open_output_writer<'a, W: Write>(
 /// * `index_writer` - Index file writer
 /// * `sorted` - Sorted input (in-memory or runs)
 /// * `sort_by` - Sort criterion
+/// * `rename` - When `true`, chain IDs are reassigned sequentially in output order
 ///
 /// # Output
 ///
 /// Returns `Ok(())` on success or `Err(CliError)` on failure
+///
+/// When `rename` is set, the chains are written with sequential IDs while the
+/// index keeps recording the byte offsets reported by the counting writer, so
+/// the offsets stay consistent with the (renamed) output.
 fn emit_sorted_chains_with_index<W: Write>(
     writer: &mut CountingWriter<W>,
     index_writer: &mut BufWriter<File>,
     sorted: SortedInput,
     sort_by: SortBy,
+    rename: bool,
 ) -> Result<(), CliError> {
     let mut tracker = IndexTracker::new(sort_by.criterion());
+    let mut next_id: u64 = 1;
 
     match sorted {
         SortedInput::InMemory(records) => {
             for chain in &records {
                 tracker.before_chain(index_writer, writer.position(), chain)?;
-                chaintools::write_chain_dense(writer, chain)?;
+                if rename {
+                    chaintools::write_chain_dense_with_id(writer, chain, next_id)?;
+                    next_id += 1;
+                } else {
+                    chaintools::write_chain_dense(writer, chain)?;
+                }
             }
         }
         SortedInput::Runs(runs) => {
             with_merged_runs(&runs, sort_by.criterion(), |chain| {
                 tracker.before_chain(index_writer, writer.position(), chain)?;
-                chaintools::write_chain_dense(writer, chain).map_err(CliError::from)
+                if rename {
+                    chaintools::write_chain_dense_with_id(writer, chain, next_id)
+                        .map_err(CliError::from)?;
+                    next_id += 1;
+                    Ok(())
+                } else {
+                    chaintools::write_chain_dense(writer, chain).map_err(CliError::from)
+                }
             })?;
         }
     }
@@ -728,6 +765,56 @@ mod tests {
              chain 20 chr1 100 + 0 10 qry1 100 + 20 30 2\n10\n\n\
              chain 10 chr2 100 + 0 10 qry2 100 + 5 15 3\n10\n\n"
         );
+        assert_eq!(stderr, b"");
+    }
+
+    #[test]
+    fn rename_reassigns_ids_in_score_order() {
+        let (stdout, stderr) = run_ok(
+            vec![arg("--rename")],
+            b"chain 5 chr2 10 + 0 5 qry2 10 + 0 5 50\n5\n\nchain 9 chr1 10 + 0 5 qry1 10 + 0 5 60\n5\n\n",
+        );
+
+        // Default --sort-by score (descending), ids renamed to 1, 2.
+        assert_eq!(
+            String::from_utf8(stdout).unwrap(),
+            "chain 9 chr1 10 + 0 5 qry1 10 + 0 5 1\n5\n\nchain 5 chr2 10 + 0 5 qry2 10 + 0 5 2\n5\n\n"
+        );
+        assert_eq!(stderr, b"");
+    }
+
+    #[test]
+    fn rename_follows_explicit_target_sort() {
+        let (stdout, stderr) = run_ok(
+            vec![arg("--rename"), arg("--sort-by"), arg("target")],
+            b"chain 9 chr2 10 + 0 5 qry2 10 + 0 5 50\n5\n\nchain 5 chr1 10 + 0 5 qry1 10 + 0 5 60\n5\n\n",
+        );
+
+        // Sorted by target (chr1 before chr2); ids follow that order: 1, 2.
+        assert_eq!(
+            String::from_utf8(stdout).unwrap(),
+            "chain 5 chr1 10 + 0 5 qry1 10 + 0 5 1\n5\n\nchain 9 chr2 10 + 0 5 qry2 10 + 0 5 2\n5\n\n"
+        );
+        assert_eq!(stderr, b"");
+    }
+
+    #[test]
+    fn rename_with_index_offsets_match_renamed_output() {
+        let index = TempPath::new("tab");
+
+        // Original ids are 6 digits wide; renaming to 1/2 shrinks the headers,
+        // so the second chain's offset differs from what the original ids would
+        // imply (0x36). The index must reflect the renamed bytes (0x31).
+        let (stdout, stderr) = run_ok(
+            vec![arg("--rename"), arg("--out-index"), index.arg()],
+            b"chain 300 chr3 1000 + 0 30 qry1 500 + 0 30 999999\n30\n\nchain 100 chr1 1000 + 10 50 qry3 500 + 15 55 888888\n40\n\n",
+        );
+
+        assert_eq!(
+            String::from_utf8(stdout).unwrap(),
+            "chain 300 chr3 1000 + 0 30 qry1 500 + 0 30 1\n30\n\nchain 100 chr1 1000 + 10 50 qry3 500 + 15 55 2\n40\n\n"
+        );
+        assert_eq!(fs::read_to_string(&index.path).unwrap(), "0\t300\n31\t100\n");
         assert_eq!(stderr, b"");
     }
 
