@@ -5,6 +5,34 @@ All notable changes to **chaintools** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.9] - 2026-07-26
+
+### Added
+
+- **`MetadataIter` zero-copy metadata line iterator** — a new iterator type in
+  `io::reader` that scans the reader's shared mmap/owned buffer without
+  allocating and yields comment lines (those beginning with `#`) in input
+  order. Each yielded item is a `&[u8]` slice that borrows the reader's
+  underlying buffer directly, stripping only trailing newline and optional `\r`
+  bytes. This makes metadata extraction both allocation-free and safe to call on
+  any chain input.
+
+- **`Reader::metadata_lines()` method** — returns a `MetadataIter` over the
+  original chain input. The iterator starts at byte 0 and scans forward,
+  yielding every `#`-prefixed line encountered. It is exposed as part of the
+  public API (`MetadataIter` is re-exported from the crate root).
+
+- **Comment-line resilience in the parser** — `parse_chains_sequential` and
+  `locate_chain_ranges` now skip `#`-prefixed lines alongside blank lines,
+  so chain files that embed metadata comments (for example, output from other
+  UCSC tools) are parsed correctly instead of causing errors.
+
+### Tests
+
+- Two new tests validate the metadata iterator: one confirms zero-copy
+  semantics by comparing raw pointer offsets against known input positions,
+  and one verifies that a comment-free input yields an empty iterator.
+
 ## [0.0.8] - 2025-06-13
 
 ### Added
@@ -221,6 +249,8 @@ First stable release.
 - Automatic gzip (`.chain.gz`) detection and decompression (`gzip` feature).
 - Test suite, benchmark binary, CI workflows, Docker image, and rustdoc documentation.
 
+[0.0.9]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.9
+[0.0.8]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.8
 [0.0.7]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.7
 [0.0.6]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.6
 [0.0.5]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.5

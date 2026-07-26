@@ -115,7 +115,7 @@ pub use model::error::ChainError;
 
 #[cfg(feature = "index")]
 pub use io::index::{ChainIndex, ChainSpan};
-pub use io::reader::Reader;
+pub use io::reader::{MetadataIter, Reader};
 pub use io::storage::ByteSlice;
 pub use io::stream::{OwnedChain, OwnedChainHeader, OwnedChainParts, StreamItem, StreamingReader};
 pub use io::writer::{

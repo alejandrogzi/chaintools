@@ -71,6 +71,42 @@ fn reader_chains_iterator() {
 }
 
 #[test]
+fn reader_metadata_lines_are_zero_copy_and_in_input_order() {
+    let input = concat!(
+        "#first metadata\r\n",
+        "chain 100 chr1 1000 + 0 100 chr2 1000 + 0 100 1\n",
+        "100\n\n",
+        "#between chains\n",
+        "chain 90 chr1 1000 + 100 200 chr2 1000 + 100 200 2\n",
+        "100\n\n",
+        "#final metadata",
+    );
+    let reader = Reader::from_owned_bytes(input.as_bytes().to_vec()).unwrap();
+    let metadata: Vec<&[u8]> = reader.metadata_lines().collect();
+
+    assert_eq!(
+        metadata,
+        vec![
+            b"#first metadata".as_slice(),
+            b"#between chains".as_slice(),
+            b"#final metadata".as_slice(),
+        ]
+    );
+    let first_offset = input.find("#first metadata").unwrap();
+    let second_offset = input.find("#between chains").unwrap();
+    assert_eq!(
+        metadata[1].as_ptr() as usize - metadata[0].as_ptr() as usize,
+        second_offset - first_offset,
+    );
+}
+
+#[test]
+fn reader_metadata_lines_empty_when_input_has_no_comments() {
+    let reader = Reader::from_owned_bytes(SAMPLE_CHAIN.as_bytes().to_vec()).unwrap();
+    assert_eq!(reader.metadata_lines().count(), 0);
+}
+
+#[test]
 fn reader_chain_details() {
     let reader = Reader::from_owned_bytes(SAMPLE_CHAIN.as_bytes().to_vec()).unwrap();
     let chain = reader.chains().next().unwrap();

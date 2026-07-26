@@ -62,6 +62,43 @@ pub struct Reader<T = Chain> {
     _marker: PhantomData<T>,
 }
 
+/// Zero-copy iterator over chain metadata/comment lines.
+///
+/// Items exclude trailing `\n` and optional `\r` bytes and retain the leading
+/// `#`. Metadata is yielded in file order.
+#[derive(Debug, Clone)]
+pub struct MetadataIter<'a> {
+    bytes: &'a [u8],
+    position: usize,
+}
+
+impl<'a> Iterator for MetadataIter<'a> {
+    type Item = &'a [u8];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.position < self.bytes.len() {
+            let line_start = self.position;
+            let relative_end = memchr::memchr(b'\n', &self.bytes[line_start..]);
+            let line_end = relative_end
+                .map(|offset| line_start + offset)
+                .unwrap_or(self.bytes.len());
+            self.position = if line_end < self.bytes.len() {
+                line_end + 1
+            } else {
+                line_end
+            };
+            let mut line = &self.bytes[line_start..line_end];
+            if line.last() == Some(&b'\r') {
+                line = &line[..line.len() - 1];
+            }
+            if line.first() == Some(&b'#') {
+                return Some(line);
+            }
+        }
+        None
+    }
+}
+
 impl Reader<Chain> {
     /// Load a chain file from a path. Uses mmap when available, falls back to owned buffer.
     ///
@@ -328,6 +365,18 @@ impl Reader<Chain> {
     /// ```
     pub fn chains(&self) -> impl Iterator<Item = &Chain> {
         self.chains.iter()
+    }
+
+    /// Iterate metadata/comment lines from the original chain input.
+    ///
+    /// The iterator scans the reader's shared mmap/owned buffer without
+    /// allocating and yields lines beginning with `#` in input order. Returned
+    /// slices borrow this reader and omit newline terminators.
+    pub fn metadata_lines(&self) -> MetadataIter<'_> {
+        MetadataIter {
+            bytes: self._bytes.as_slice(),
+            position: 0,
+        }
     }
 
     /// Returns the number of chains in the reader.
