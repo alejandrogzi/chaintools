@@ -1,6 +1,6 @@
 [package]
 name = "chaintools"
-version = "0.0.8"
+version = "0.0.9"
 edition = "2024"
 authors = ["alejandrogzi <alejandrxgzi@gmail.com>"]
 license = "MIT"
@@ -24,7 +24,7 @@ sequence = ["dep:twobit"]
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }
 flate2 = { version = "1", optional = true, default-features = false }
-genepred = { version = "0.0.13", optional = true }
+genepred = { version = "0.0.16", optional = true }
 memchr = "2"
 memmap2 = { version = "0.9", optional = true }
 rayon = { version = "1", optional = true }

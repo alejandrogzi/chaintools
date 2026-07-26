@@ -50,7 +50,7 @@ pub(crate) fn parse_chains_sequential(
         let line_start = pos;
         let (next_pos, line) = read_line(bytes, pos);
         pos = next_pos;
-        if is_blank(line) {
+        if is_blank(line) || line.starts_with(b"#") {
             continue;
         }
         let (mut meta, has_explicit_id) = parse_header_with_default_id(line, line_start, next_id)?;
@@ -125,7 +125,7 @@ pub(crate) fn locate_chain_ranges(bytes: &[u8]) -> Result<Vec<Range<usize>>, Cha
         let chain_start = pos;
         let (next_pos, line) = read_line(bytes, pos);
         pos = next_pos;
-        if is_blank(line) {
+        if is_blank(line) || line.starts_with(b"#") {
             continue;
         }
         if !line.starts_with(b"chain ") {
