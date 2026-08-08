@@ -1,1 +1,13 @@
 /target
+
+# UCSC kent binaries used as benchmark baselines (see bench/benchmark.rs)
+/bench/chain*
+/bench/liftOver
+
+# hyperfine exports and benchmark scratch files
+/runs
+/bench.bed
+/out.chain
+/out.bed
+/unmapped.bed
+/bench.bed.source
