@@ -245,6 +245,36 @@ impl SequenceResolver {
         }
     }
 
+    /// Returns every preloaded sequence name with its length, sorted by name.
+    ///
+    /// Formats that must declare their sequences before any record is written
+    /// (a BAM `@SQ` header, for instance) need the whole set up front, while
+    /// chains are still being streamed. The sort makes that declaration
+    /// deterministic across runs, which a `HashMap` iteration order is not.
+    ///
+    /// # Output
+    ///
+    /// Returns `Ok(Vec<(name, length)>)`, or `Err(ChainError)` if a length
+    /// exceeds the `u32` coordinate space or the source is not preloaded.
+    pub fn sequences(&self) -> Result<Vec<(&[u8], u32)>, ChainError> {
+        match &self.source {
+            SequenceSource::Loaded { sequences, .. } => {
+                let mut entries = Vec::with_capacity(sequences.len());
+                for (name, sequence) in sequences.iter() {
+                    let len = u32::try_from(sequence.len()).map_err(|_| {
+                        sequence_error("sequence length exceeds u32 coordinate space")
+                    })?;
+                    entries.push((name.as_slice(), len));
+                }
+                entries.sort_unstable_by_key(|(name, _)| *name);
+                Ok(entries)
+            }
+            SequenceSource::TwoBit(_) => {
+                Err(sequence_error("sequences() requires preloaded sequences"))
+            }
+        }
+    }
+
     /// Returns the full decoded sequence length.
     pub fn sequence_len(&self, seq_name: &[u8]) -> Result<u32, ChainError> {
         let len = self.sequence(seq_name)?.len();

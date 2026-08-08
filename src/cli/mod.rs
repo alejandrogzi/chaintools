@@ -3,16 +3,19 @@
 
 pub mod anti_repeat;
 pub mod bed;
+pub mod convert;
 pub mod filter;
+pub mod liftover;
 pub mod merge;
 pub mod score;
 pub mod sort;
 mod sort_core;
 pub mod split;
+pub mod swap;
 
 use std::fmt;
 use std::io::{self, BufRead, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chaintools::ChainError;
 use clap::{Parser, Subcommand};
@@ -62,8 +65,12 @@ enum Command {
     AntiRepeat(anti_repeat::AntiRepeatArgs),
     #[command(about = "Convert chain files to BED")]
     Bed(bed::BedArgs),
+    #[command(about = "Convert chain files to VCF, MAF, or BAM")]
+    Convert(convert::ConvertArgs),
     #[command(about = "Filter chain files")]
     Filter(filter::FilterArgs),
+    #[command(about = "Map BED coordinates through a chain (reference/target -> query)")]
+    Liftover(liftover::LiftoverArgs),
     #[command(about = "Merge chain files")]
     Merge(merge::MergeArgs),
     #[command(about = "Recompute chain scores from sequence (UCSC chainScore-compatible)")]
@@ -72,6 +79,8 @@ enum Command {
     Split(split::SplitArgs),
     #[command(about = "Sort chain files")]
     Sort(sort::SortArgs),
+    #[command(about = "Swap the target and query sides of chains (UCSC chainSwap)")]
+    Swap(swap::SwapArgs),
 }
 
 impl std::fmt::Display for Command {
@@ -79,11 +88,14 @@ impl std::fmt::Display for Command {
         match self {
             Command::AntiRepeat(_) => f.write_str("antirepeat"),
             Command::Bed(_) => f.write_str("bed"),
+            Command::Convert(_) => f.write_str("convert"),
             Command::Filter(_) => f.write_str("filter"),
+            Command::Liftover(_) => f.write_str("liftover"),
             Command::Merge(_) => f.write_str("merge"),
             Command::Score(_) => f.write_str("score"),
             Command::Split(_) => f.write_str("split"),
             Command::Sort(_) => f.write_str("sort"),
+            Command::Swap(_) => f.write_str("swap"),
         }
     }
 }
@@ -184,11 +196,14 @@ where
     let result = match cli.command {
         Command::AntiRepeat(args) => anti_repeat::run(args, stdin, stdout, stderr),
         Command::Bed(args) => bed::run(args, stdin, stdout, stderr),
+        Command::Convert(args) => convert::run(args, stdin, stdout, stderr),
         Command::Filter(args) => filter::run(args, stdin, stdout, stderr),
+        Command::Liftover(args) => liftover::run(args, stdin, stdout, stderr),
         Command::Merge(args) => merge::run(args, stdin, stdout, stderr),
         Command::Score(args) => score::run(args, stdin, stdout, stderr),
         Command::Split(args) => split::run(args, stdin, stdout, stderr),
         Command::Sort(args) => sort::run(args, stdin, stdout, stderr),
+        Command::Swap(args) => swap::run(args, stdin, stdout, stderr),
     };
 
     log::info!("Execution time: {:?}", start.elapsed());
@@ -281,6 +296,116 @@ pub(crate) fn ensure_inputs_exist(
         }
     }
     Ok(())
+}
+
+/// Checks that a chain's block list accounts for exactly both header spans.
+///
+/// `sum(sizes) + sum(inner target gaps)` must equal the target span, and the
+/// same must hold on the query side. Widened to `u64` so a malformed chain is
+/// reported instead of overflowing. Shared by `swap` and `liftover`, which both
+/// have to trust these spans before transforming coordinates.
+///
+/// # Arguments
+///
+/// * `chain` - The chain to check
+/// * `offset` - Byte offset of the chain header, for error reporting
+///
+/// # Output
+///
+/// Returns `Ok(())` when both sums match, or `Err(ChainError::Format)`
+pub(crate) fn validate_block_spans(
+    chain: &chaintools::OwnedChain,
+    offset: usize,
+) -> Result<(), ChainError> {
+    let mut reference = 0u64;
+    let mut query = 0u64;
+    let last = chain.blocks.len().saturating_sub(1);
+    for (index, block) in chain.blocks.iter().enumerate() {
+        reference += u64::from(block.size);
+        query += u64::from(block.size);
+        if index < last {
+            reference += u64::from(block.gap_reference);
+            query += u64::from(block.gap_query);
+        }
+    }
+
+    let reference_span = span_len(chain.reference_start, chain.reference_end, offset, "target")?;
+    let query_span = span_len(chain.query_start, chain.query_end, offset, "query")?;
+    if reference != u64::from(reference_span) {
+        return Err(span_error(
+            offset,
+            "chain blocks do not sum to the target span",
+        ));
+    }
+    if query != u64::from(query_span) {
+        return Err(span_error(
+            offset,
+            "chain blocks do not sum to the query span",
+        ));
+    }
+    Ok(())
+}
+
+fn span_len(start: u32, end: u32, offset: usize, label: &str) -> Result<u32, ChainError> {
+    end.checked_sub(start)
+        .ok_or_else(|| span_error(offset, format!("{label} span is inverted")))
+}
+
+fn span_error(offset: usize, message: impl Into<String>) -> ChainError {
+    ChainError::Format {
+        offset,
+        msg: message.into().into(),
+    }
+}
+
+/// Rejects an output path that resolves to the same file as the input chain.
+///
+/// Writing the output would truncate the input before it is read, so this is a
+/// pre-flight check rather than a recoverable error. Nothing to do when the
+/// input is standard input.
+///
+/// # Arguments
+///
+/// * `label` - Name of the output flag, used in the error message
+/// * `output` - The requested output path
+/// * `input` - The input chain path, or `None` for standard input
+///
+/// # Output
+///
+/// Returns `Ok(())` when the paths differ, or `Err(CliError::Message)`
+pub(crate) fn validate_distinct_paths(
+    label: &str,
+    output: &Path,
+    input: Option<&Path>,
+) -> Result<(), CliError> {
+    let Some(input) = input else {
+        return Ok(());
+    };
+    if resolve_path(output)? == resolve_path(input)? {
+        return Err(CliError::Message(format!(
+            "{label} must not be the same path as input chain {}",
+            input.display()
+        )));
+    }
+    Ok(())
+}
+
+/// Resolves a path for comparison, tolerating a not-yet-created output file.
+fn resolve_path(path: &Path) -> Result<PathBuf, CliError> {
+    if path.exists() {
+        return Ok(std::fs::canonicalize(path)?);
+    }
+
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let parent = if parent.as_os_str().is_empty() {
+        std::env::current_dir()?
+    } else {
+        std::fs::canonicalize(parent)?
+    };
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| CliError::Message(format!("invalid path {}", path.display())))?;
+    Ok(parent.join(file_name))
 }
 
 /// Checks that a single input file exists, mapping the outcome to a `CliError`.

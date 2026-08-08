@@ -5,6 +5,53 @@ All notable changes to **chaintools** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.10] - 2026-08-08
+
+### Added
+
+- **`swap` subcommand** (UCSC `chainSwap`-compatible) — swaps the target and
+  query sides of every chain. Metadata/comment lines pass through unchanged,
+  gzip output is supported (`-G`), and chains can be read from standard input
+  with output to standard output. Output verified byte-identical to UCSC
+  `chainSwap` on a 344 MB hg38 vs HLrhiRex1 input.
+
+- **`liftover` subcommand** (UCSC `liftOver`-compatible) — maps BED3/BED6/BED12
+  intervals through a chain file, handling both query strands, gaps, and
+  multiple chains. Options include `--min-match` (default 0.95), `--multiple`
+  (emit every qualifying mapping instead of rejecting multi-chain records),
+  and `--unmapped` (unlifted records with a reason comment). Lookup uses the
+  new `rust-lapper` dependency over preloaded blocks. Output verified
+  byte-identical to UCSC `liftOver` on `.over.chain.gz` inputs.
+
+- **`convert` subcommand** — converts chains plus reference/query sequence
+  (`.2bit`, `.fa`, gzip variants) into VCF, MAF, or BAM (`--to vcf|maf|bam`).
+  BAM output is gated behind a new optional `bam` cargo feature
+  (`noodles-bam`/`noodles-core`/`noodles-sam`), so library and non-BAM CLI
+  builds do not pull the BAM writer.
+
+- **`SequenceResolver::sequences()`** — returns every preloaded sequence name
+  with its length, sorted by name, so formats that must declare sequences up
+  front (a BAM `@SQ` header) can while chains are still streamed.
+
+- **Shared CLI helpers** — `validate_block_spans` (a chain's blocks must sum
+  exactly to both header spans, before any coordinate transformation) and
+  `validate_distinct_paths` (output must not resolve to the input chain path),
+  shared by `swap` and `liftover`.
+
+### Changed
+
+- **Benchmark suite** — adds `swap` and `liftover` benchmarks against their
+  UCSC baselines (1.69x and 3.78x faster respectively), a `--only <NAME,...>`
+  flag to run a subset, and a once-built BED workload for `liftover` sampled
+  from the chain's own aligned blocks (with a `.source` stamp so it is not
+  reused against a different chain).
+
+### Documentation
+
+- Tool docs for the three new subcommands in `assets/tools/`
+  (`convert.md`, `liftover.md`, `swap.md`).
+- README bumped to 0.0.10 with benchmark tables and methodology notes.
+
 ## [0.0.9] - 2026-07-26
 
 ### Added
@@ -249,6 +296,7 @@ First stable release.
 - Automatic gzip (`.chain.gz`) detection and decompression (`gzip` feature).
 - Test suite, benchmark binary, CI workflows, Docker image, and rustdoc documentation.
 
+[0.0.10]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.10
 [0.0.9]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.9
 [0.0.8]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.8
 [0.0.7]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.7

@@ -1,6 +1,6 @@
 [package]
 name = "chaintools"
-version = "0.0.9"
+version = "0.0.10"
 edition = "2024"
 authors = ["alejandrogzi <alejandrxgzi@gmail.com>"]
 license = "MIT"
@@ -13,13 +13,16 @@ default-run = "chaintools"
 
 [features]
 default = ["mmap"]
-cli = ["dep:clap", "dep:genepred", "dep:log", "dep:simple_logger", "sequence", "write", "dep:num_cpus", "parallel"]
+cli = ["dep:clap", "dep:genepred", "dep:log", "dep:simple_logger", "sequence", "write", "dep:num_cpus", "dep:rust-lapper", "parallel"]
 mmap = ["memmap2"]
 gzip = ["dep:flate2", "flate2/zlib-rs"]
 parallel = ["rayon"]
 index = []
 write = []
 sequence = ["dep:twobit"]
+# BAM output for `convert --to bam`. Optional so library and non-BAM CLI builds
+# do not pull the BAM writer; VCF and MAF conversion never touch it.
+bam = ["dep:noodles-bam", "dep:noodles-core", "dep:noodles-sam"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }
@@ -27,7 +30,11 @@ flate2 = { version = "1", optional = true, default-features = false }
 genepred = { version = "0.0.16", optional = true }
 memchr = "2"
 memmap2 = { version = "0.9", optional = true }
+noodles-bam = { version = "0.94", optional = true }
+noodles-core = { version = "0.20", optional = true }
+noodles-sam = { version = "0.89", optional = true }
 rayon = { version = "1", optional = true }
+rust-lapper = { version = "1", optional = true }
 log = { version = "0.4.29", optional = true }
 simple_logger = { version = "5.2.0", optional = true, features = ["stderr"] }
 twobit = { version = "0.2.2", optional = true }
