@@ -18,6 +18,32 @@ const MERGE_SORT: [&str; 2] = [
     "target/release/chaintools split -c {chain} --files 10 -o . && ./bench/chainMergeSort chains/* > out.chain && rm -rf chains",
 ];
 
+const SWAP: [&str; 2] = [
+    "target/release/chaintools swap -c {chain} -o out.chain",
+    "./bench/chainSwap {chain} out.chain",
+];
+
+// Both tools default to a 0.95 minimum match and to rejecting records that
+// several chains can place, so no flags are needed to line them up. `bench.bed`
+// is built once by `prepare_liftover_bed`; regenerating it per run would time
+// the setup instead of the liftover.
+const LIFTOVER: [&str; 2] = [
+    "target/release/chaintools liftover -c {chain} -b bench.bed --type 3 -o out.bed -u unmapped.bed",
+    "./bench/liftOver bench.bed {chain} out.bed unmapped.bed",
+];
+
+/// BED workload for the liftover benchmark.
+const LIFTOVER_BED: &str = "bench.bed";
+
+/// Records which chain the BED workload was built from.
+///
+/// A BED built from one chain but benchmarked against another would silently
+/// measure nothing useful, so the source is written next to it and checked.
+const LIFTOVER_BED_SOURCE: &str = "bench.bed.source";
+
+/// Keep every Nth aligned chain block when building the liftover workload.
+const LIFTOVER_BED_STRIDE: u64 = 10;
+
 /// Command line arguments for the benchmark utility.
 ///
 /// This struct defines configuration options for running performance benchmarks
@@ -35,6 +61,18 @@ pub struct Args {
         help = "Extra arguments to pass to hyperfine"
     )]
     hyperfine_args: Vec<String>,
+
+    /// Run only the named benchmarks instead of all of them.
+    ///
+    /// Each benchmark needs its UCSC baseline binary present in `bench/`, so
+    /// this allows running the ones whose baseline is installed.
+    #[clap(
+        long = "only",
+        value_delimiter = ',',
+        num_args = 1..,
+        help = "Only run the named benchmarks (sorting, filter, merge_sort, swap, liftover)"
+    )]
+    only: Vec<String>,
 }
 
 /// Configuration for hyperfine benchmark execution.
@@ -164,26 +202,40 @@ fn benchmark() {
     let args = Args::parse();
 
     std::fs::create_dir_all("runs").unwrap_or_else(|e| panic!("{}", e));
+    prepare_liftover_bed(&args.chain);
+
+    // (input, commands, run name, warmup, min runs, max runs). `swap` and
+    // `liftover` read every chain of a multi-hundred-megabyte input on each run,
+    // so they get fewer repetitions than the lighter benchmarks.
     let triplets = vec![
-        (&args.chain, SORTING.to_vec(), "sorting"),
-        (&args.chain, FILTER.to_vec(), "filter"),
-        (&args.chain, MERGE_SORT.to_vec(), "merge_sort"),
+        (&args.chain, SORTING.to_vec(), "sorting", 3, 3, 10),
+        (&args.chain, FILTER.to_vec(), "filter", 3, 3, 10),
+        (&args.chain, MERGE_SORT.to_vec(), "merge_sort", 3, 3, 10),
+        (&args.chain, SWAP.to_vec(), "swap", 3, 3, 10),
+        (&args.chain, LIFTOVER.to_vec(), "liftover", 3, 3, 10),
     ];
 
-    for (chain, tools, run_name) in triplets {
+    for (chain, tools, run_name, warmup, min_runs, max_runs) in triplets {
+        if !args.only.is_empty() && !args.only.iter().any(|name| name == run_name) {
+            continue;
+        }
         let csv = format!("bench_{}.csv", run_name);
         let md = format!("bench_{}.md", run_name);
 
         #[allow(clippy::needless_update)]
         let code = HyperfineCall {
-            warmup: 3,
-            min_runs: 3,
-            max_runs: Some(10),
+            warmup,
+            min_runs,
+            max_runs: Some(max_runs),
             export_csv: Some(format!("runs/{}", csv).to_string()),
             export_markdown: Some(format!("runs/{}", md).to_string()),
             parameters: vec![("chain".to_string(), vec![chain.to_string()])],
             setup: Some("cargo build --release --all-features".to_string()),
-            cleanup: Some(format!("rm -rf output {} chains", STDOUT)),
+            // Deliberately does not remove the liftover BED: that is an input.
+            cleanup: Some(format!(
+                "rm -rf output {} chains out.bed unmapped.bed",
+                STDOUT
+            )),
             commands: tools
                 .iter()
                 .map(|cmd| cmd.to_string())
@@ -203,6 +255,52 @@ fn benchmark() {
             eprintln!("Benchmark failed with exit code {}", code);
         }
     }
+}
+
+/// Builds the BED workload for the liftover benchmark, once.
+///
+/// The intervals are the chain's own aligned blocks, sampled every
+/// [`LIFTOVER_BED_STRIDE`] blocks, so the records genuinely map and the
+/// benchmark measures candidate lookup plus mapping rather than the unmapped
+/// path. Whole chain spans would be the wrong workload: a multi-megabase span
+/// cannot meet a 0.95 minimum match. Skipped when the file already exists, so
+/// repeated benchmark runs reuse the same input.
+fn prepare_liftover_bed(chain: &str) {
+    let built_from_this_chain = std::fs::read_to_string(LIFTOVER_BED_SOURCE)
+        .is_ok_and(|source| source.trim() == chain.trim());
+    if std::path::Path::new(LIFTOVER_BED).exists() && built_from_this_chain {
+        eprintln!("reusing existing {LIFTOVER_BED}");
+        return;
+    }
+
+    build_release();
+    eprintln!("building {LIFTOVER_BED} from {chain}");
+    let script = format!(
+        "target/release/chaintools --level off bed -c {chain} --side reference --type 12 \
+         | awk 'BEGIN{{OFS=\"\\t\"}} \
+           {{n=split($11,sz,\",\"); split($12,st,\",\"); \
+             for(i=1;i<=n;i++) if(sz[i]!=\"\") {{k++; if(k%{LIFTOVER_BED_STRIDE}==0) \
+               print $1, $2+st[i], $2+st[i]+sz[i]}}}}' > {LIFTOVER_BED}"
+    );
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(&script)
+        .status()
+        .expect("Failed to build the liftover BED workload");
+    assert!(status.success(), "building {LIFTOVER_BED} failed");
+    std::fs::write(LIFTOVER_BED_SOURCE, chain).expect("Failed to record the BED source chain");
+}
+
+/// Builds the release binaries the benchmark commands invoke.
+fn build_release() {
+    let status = Command::new("cargo")
+        .args(["build", "--release", "--all-features"])
+        .status()
+        .expect("Failed to run cargo build");
+    assert!(
+        status.success(),
+        "cargo build --release --all-features failed"
+    );
 }
 
 /// Main entry point for the benchmark utility.
