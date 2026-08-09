@@ -12,6 +12,7 @@ fn strand_creation() {
 }
 
 #[test]
+#[allow(clippy::clone_on_copy)]
 fn strand_copy_and_clone() {
     let original = Strand::Plus;
     let copied = original;

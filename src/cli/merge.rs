@@ -5,16 +5,16 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
-use chaintools::{io::storage::is_gz_path, StreamingReader};
+use chaintools::{StreamingReader, io::storage::is_gz_path};
 use clap::{Args, ValueEnum};
 #[cfg(feature = "gzip")]
-use flate2::{read::MultiGzDecoder, write::GzEncoder, Compression};
+use flate2::{Compression, read::MultiGzDecoder, write::GzEncoder};
 
-use super::sort_core::{
-    emit_sorted_chains, write_metadata_lines, SortAccumulator, SortCriterion,
-    OUTPUT_BUFFER_CAPACITY,
-};
 use super::CliError;
+use super::sort_core::{
+    OUTPUT_BUFFER_CAPACITY, SortAccumulator, SortCriterion, emit_sorted_chains,
+    write_metadata_lines,
+};
 
 const BYTES_PER_GB: f64 = 1_000_000_000.0;
 const DEFAULT_MAX_GB: f64 = 16.0;
@@ -793,9 +793,10 @@ mod tests {
             input.arg(),
         ]);
 
-        assert!(err
-            .to_string()
-            .contains("--out-chain must not be the same path as input chain"));
+        assert!(
+            err.to_string()
+                .contains("--out-chain must not be the same path as input chain")
+        );
     }
 
     #[test]
@@ -1042,9 +1043,10 @@ mod tests {
             arg("--gzip"),
         ]);
 
-        assert!(err
-            .to_string()
-            .contains("--gzip requires chaintools to be built with the `gzip` feature"));
+        assert!(
+            err.to_string()
+                .contains("--gzip requires chaintools to be built with the `gzip` feature")
+        );
     }
 
     #[test]
@@ -1064,8 +1066,9 @@ mod tests {
             arg("0"),
         ]);
 
-        assert!(err
-            .to_string()
-            .contains("--max-gb must be greater than zero"));
+        assert!(
+            err.to_string()
+                .contains("--max-gb must be greater than zero")
+        );
     }
 }

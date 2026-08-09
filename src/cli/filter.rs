@@ -444,12 +444,12 @@ fn validate_output_args(args: &FilterArgs) -> Result<(), CliError> {
 
 /// Validates that output path differs from input paths.
 fn validate_output_path(args: &FilterArgs) -> Result<(), CliError> {
-    if let Some(output) = &args.out_chain {
-        if args.chains.iter().any(|input| input == output) {
-            return Err(CliError::Message(
-                "--out-chain must not be the same path as an input --chain".to_owned(),
-            ));
-        }
+    if let Some(output) = &args.out_chain
+        && args.chains.iter().any(|input| input == output)
+    {
+        return Err(CliError::Message(
+            "--out-chain must not be the same path as an input --chain".to_owned(),
+        ));
     }
     Ok(())
 }
