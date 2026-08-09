@@ -3,6 +3,7 @@
 
 pub mod anti_repeat;
 pub mod bed;
+pub mod compare;
 pub mod convert;
 pub mod filter;
 pub mod liftover;
@@ -11,6 +12,7 @@ pub mod score;
 pub mod sort;
 mod sort_core;
 pub mod split;
+pub mod stats;
 pub mod swap;
 
 use std::fmt;
@@ -56,6 +58,7 @@ pub struct Cli {
 
 /// Subcommands available in the chaintools CLI.
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Command {
     #[command(
         name = "antirepeat",
@@ -65,6 +68,8 @@ enum Command {
     AntiRepeat(anti_repeat::AntiRepeatArgs),
     #[command(about = "Convert chain files to BED")]
     Bed(bed::BedArgs),
+    #[command(about = "Compare exact mappings, coverage, ambiguity, and continuity")]
+    Compare(compare::CompareArgs),
     #[command(about = "Convert chain files to VCF, MAF, or BAM")]
     Convert(convert::ConvertArgs),
     #[command(about = "Filter chain files")]
@@ -79,6 +84,8 @@ enum Command {
     Split(split::SplitArgs),
     #[command(about = "Sort chain files")]
     Sort(sort::SortArgs),
+    #[command(about = "Summarize alignment, gap, and continuity statistics")]
+    Stats(stats::StatsArgs),
     #[command(about = "Swap the target and query sides of chains (UCSC chainSwap)")]
     Swap(swap::SwapArgs),
 }
@@ -88,6 +95,7 @@ impl std::fmt::Display for Command {
         match self {
             Command::AntiRepeat(_) => f.write_str("antirepeat"),
             Command::Bed(_) => f.write_str("bed"),
+            Command::Compare(_) => f.write_str("compare"),
             Command::Convert(_) => f.write_str("convert"),
             Command::Filter(_) => f.write_str("filter"),
             Command::Liftover(_) => f.write_str("liftover"),
@@ -95,6 +103,7 @@ impl std::fmt::Display for Command {
             Command::Score(_) => f.write_str("score"),
             Command::Split(_) => f.write_str("split"),
             Command::Sort(_) => f.write_str("sort"),
+            Command::Stats(_) => f.write_str("stats"),
             Command::Swap(_) => f.write_str("swap"),
         }
     }
@@ -196,6 +205,7 @@ where
     let result = match cli.command {
         Command::AntiRepeat(args) => anti_repeat::run(args, stdin, stdout, stderr),
         Command::Bed(args) => bed::run(args, stdin, stdout, stderr),
+        Command::Compare(args) => compare::run(args, stdin, stdout, stderr),
         Command::Convert(args) => convert::run(args, stdin, stdout, stderr),
         Command::Filter(args) => filter::run(args, stdin, stdout, stderr),
         Command::Liftover(args) => liftover::run(args, stdin, stdout, stderr),
@@ -203,6 +213,7 @@ where
         Command::Score(args) => score::run(args, stdin, stdout, stderr),
         Command::Split(args) => split::run(args, stdin, stdout, stderr),
         Command::Sort(args) => sort::run(args, stdin, stdout, stderr),
+        Command::Stats(args) => stats::run(args, stdin, stdout, stderr),
         Command::Swap(args) => swap::run(args, stdin, stdout, stderr),
     };
 

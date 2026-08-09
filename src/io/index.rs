@@ -121,7 +121,7 @@ impl ChainIndex {
         {
             let file = std::fs::File::open(path)?;
             let mmap = unsafe { MmapOptions::new().map(&file)? };
-            return ChainIndex::from_bytes(SharedBytes::from_mmap(mmap));
+            ChainIndex::from_bytes(SharedBytes::from_mmap(mmap))
         }
 
         #[cfg(not(feature = "mmap"))]

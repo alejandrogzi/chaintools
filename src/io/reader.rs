@@ -238,7 +238,7 @@ impl Reader<Chain> {
         {
             let file = std::fs::File::open(path)?;
             let mmap = unsafe { MmapOptions::new().map(&file)? };
-            return Self::build(SharedBytes::from_mmap(mmap), ParseStrategy::Parallel);
+            Self::build(SharedBytes::from_mmap(mmap), ParseStrategy::Parallel)
         }
 
         #[cfg(not(feature = "mmap"))]

@@ -5,6 +5,30 @@ All notable changes to **chaintools** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.11] - 2026-08-09
+
+### Added
+
+- **`stats` subcommand** — summarizes alignment amount, within-chain gaps,
+  query-strand counts, and chain fragmentation in one streaming pass.
+  Includes chain aligned-bp N50/L50, per-target top-1/top-3 chain
+  concentration and chains→50/90/95% counts, plus `--by-sequence` per-target
+  tables and top scored chains. Reads standard input when `--chain` is
+  omitted.
+
+- **`compare` subcommand** — compares two chain files by their canonical
+  base-pair mappings (invariant to chain IDs, order, and harmless splitting),
+  reported separately from unique coverage, multi-mapped bp, continuity, and
+  gaps. Per-target agreement is available with `--by-sequence`. Sequence names
+  are interned and a fixed memory budget is checked before canonicalization,
+  so oversized inputs fail cleanly instead of OOMing.
+
+### Documentation
+
+- Tool docs for the two new subcommands in `assets/tools/`
+  (`stats.md`, `compare.md`).
+- README "Statistics and comparison" section with both commands.
+
 ## [0.0.10] - 2026-08-08
 
 ### Added

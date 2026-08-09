@@ -444,8 +444,12 @@ fn collect_sorted_input<R: BufRead>(
 ) -> Result<CollectedInput, CliError> {
     // Sort reads a single input, so metadata lines are preserved verbatim
     // (no cross-file deduplication).
-    let mut accumulator =
-        SortAccumulator::new(args.sort_by.criterion(), max_in_memory_bytes, temp_dir, false);
+    let mut accumulator = SortAccumulator::new(
+        args.sort_by.criterion(),
+        max_in_memory_bytes,
+        temp_dir,
+        false,
+    );
     accumulator.push_stream(reader)?;
     // Capture counts before `finish` consumes the accumulator.
     let chains = accumulator.chains_pushed();
@@ -814,7 +818,10 @@ mod tests {
             String::from_utf8(stdout).unwrap(),
             "chain 300 chr3 1000 + 0 30 qry1 500 + 0 30 1\n30\n\nchain 100 chr1 1000 + 10 50 qry3 500 + 15 55 2\n40\n\n"
         );
-        assert_eq!(fs::read_to_string(&index.path).unwrap(), "0\t300\n31\t100\n");
+        assert_eq!(
+            fs::read_to_string(&index.path).unwrap(),
+            "0\t300\n31\t100\n"
+        );
         assert_eq!(stderr, b"");
     }
 

@@ -801,13 +801,13 @@ impl LoadedInput {
             let file = File::open(path)?;
             let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
             log::debug!("Loaded plain input through memory mapping");
-            return Ok(Self {
+            Ok(Self {
                 bytes: SharedInputBytes::Mmap(Arc::new(mmap)),
                 basename: derive_basename(path),
                 source_path: Some(fs::canonicalize(path)?),
                 source_encoding: SourceEncoding::Plain,
                 _temp: None,
-            });
+            })
         }
 
         #[cfg(not(feature = "mmap"))]
@@ -865,13 +865,13 @@ impl LoadedInput {
             let file = File::open(&temp.path)?;
             let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
             log::debug!("Staged standard input to a temporary mmap-backed file");
-            return Ok(Self {
+            Ok(Self {
                 bytes: SharedInputBytes::Mmap(Arc::new(mmap)),
                 basename: "stdin".to_owned(),
                 source_path: None,
                 source_encoding: SourceEncoding::Plain,
                 _temp: Some(temp),
-            });
+            })
         }
 
         #[cfg(not(feature = "mmap"))]
@@ -1016,7 +1016,7 @@ fn create_temp_path(prefix: &str) -> Result<PathBuf, CliError> {
 fn derive_basename(path: &Path) -> String {
     let file_name = path
         .file_name()
-        .unwrap_or_else(|| path.as_os_str())
+        .unwrap_or(path.as_os_str())
         .to_string_lossy();
     let without_gz = file_name.strip_suffix(".gz").unwrap_or(&file_name);
     let without_chain = without_gz.strip_suffix(".chain").unwrap_or(without_gz);
