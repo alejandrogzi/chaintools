@@ -5,6 +5,23 @@ All notable changes to **chaintools** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.12] - 2026-08-10
+
+### Added
+
+- **`compare --memory-ceiling <GIB>` / `-M`** — the in-memory ceiling for
+  canonical mappings is now configurable per run instead of a fixed
+  constant; the ceiling value is reported in the error when exceeded.
+
+### Changed
+
+- **`compare` default memory ceiling raised from 8 to 16 GiB** — the
+  canonical-mapping estimate is checked against the configurable ceiling
+  (default 16 GiB) before canonicalization, so larger inputs pass by
+  default while oversized ones still fail cleanly instead of OOMing.
+  Per-key external sorting remains the planned upgrade path for inputs
+  beyond the ceiling.
+
 ## [0.0.11] - 2026-08-09
 
 ### Added
@@ -320,6 +337,8 @@ First stable release.
 - Automatic gzip (`.chain.gz`) detection and decompression (`gzip` feature).
 - Test suite, benchmark binary, CI workflows, Docker image, and rustdoc documentation.
 
+[0.0.12]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.12
+[0.0.11]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.11
 [0.0.10]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.10
 [0.0.9]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.9
 [0.0.8]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.8
