@@ -47,6 +47,7 @@ Both inputs must be paths; there is no stdin mode.
 - `--by-sequence`: add the per-target agreement table and top-chain lists.
 - `--top <N>`: with `--by-sequence`, show the top `N` scored chains per target.
   Default `3`.
+- `--memory-ceiling <GIB>` / `-M`: fail when the canonical-mapping estimate exceeds this many GiB. Default `16`.
 
 ## What is compared
 
@@ -149,7 +150,7 @@ file is not an error — that may be a real coverage difference.
 ## Memory
 
 Canonical mappings are held in memory (one ~32-byte segment per block, both
-files). The estimate is checked against a fixed 8 GiB ceiling before
-canonicalization; past it the command fails with a clear error instead of
-OOMing. Per-key external sorting is the planned upgrade path for larger inputs
-and is not implemented.
+files). The estimate is checked against a configurable ceiling (default 16 GiB,
+set via `--memory-ceiling <GIB>`) before canonicalization; past it the command
+fails with a clear error instead of OOMing. Per-key external sorting is the
+planned upgrade path for larger inputs and is not implemented.

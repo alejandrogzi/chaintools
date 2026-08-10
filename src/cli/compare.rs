@@ -12,8 +12,8 @@ use clap::Args;
 use super::CliError;
 use super::stats::{self, ChainStats, TargetStats};
 
-// ponytail: fixed in-memory ceiling; add per-key external sort if real inputs exceed 8 GiB.
-const CANONICAL_MEMORY_BUDGET: u128 = 8 * 1024 * 1024 * 1024;
+// ponytail: in-memory ceiling, configurable via --memory-ceiling; add per-key external sort if real inputs exceed it.
+const DEFAULT_MEMORY_CEILING_GIB: u64 = 16;
 const ESTIMATED_SEGMENT_BYTES: u128 = 32;
 
 #[derive(Debug, Args)]
@@ -34,6 +34,15 @@ pub struct CompareArgs {
         help = "Top scored chains to show per target with --by-sequence"
     )]
     top: usize,
+
+    #[arg(
+        short = 'M',
+        long = "memory-ceiling",
+        value_name = "GIB",
+        default_value_t = DEFAULT_MEMORY_CEILING_GIB,
+        help = "Memory ceiling in GiB for canonical mappings before compare fails"
+    )]
+    memory_ceiling: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -123,7 +132,7 @@ where
     let stats_a = analyze_path(&args.chain_a)?;
     let stats_b = analyze_path(&args.chain_b)?;
     ensure_compatible(&stats_a, &stats_b)?;
-    check_memory_budget(stats_a.blocks, stats_b.blocks)?;
+    check_memory_budget(stats_a.blocks, stats_b.blocks, args.memory_ceiling)?;
 
     let mut names = NameInterner::default();
     let mappings_a = canonicalize_path(&args.chain_a, stats_a.blocks, &mut names)?;
@@ -184,11 +193,12 @@ fn check_sizes(
     Ok(())
 }
 
-fn check_memory_budget(a_blocks: u64, b_blocks: u64) -> Result<(), CliError> {
+fn check_memory_budget(a_blocks: u64, b_blocks: u64, ceiling_gib: u64) -> Result<(), CliError> {
     let estimated = (u128::from(a_blocks) + u128::from(b_blocks)) * ESTIMATED_SEGMENT_BYTES * 2;
-    if estimated > CANONICAL_MEMORY_BUDGET {
+    let budget = u128::from(ceiling_gib) * 1024 * 1024 * 1024;
+    if estimated > budget {
         return Err(CliError::Message(format!(
-            "canonical mapping estimate ({:.2} GiB) exceeds compare's fixed 8 GiB ceiling; per-key external sort is the upgrade path and is not implemented",
+            "canonical mapping estimate ({:.2} GiB) exceeds compare's {ceiling_gib} GiB memory ceiling; per-key external sort is the upgrade path and is not implemented",
             estimated as f64 / (1024.0 * 1024.0 * 1024.0)
         )));
     }
@@ -802,7 +812,18 @@ fn percent_ratio_u128(numerator: u128, denominator: u128) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
     use std::io::Cursor;
+
+    #[derive(Debug, Parser)]
+    struct CompareHarness {
+        #[command(flatten)]
+        args: CompareArgs,
+    }
+
+    fn parse_compare_args(argv: &[&str]) -> CompareArgs {
+        CompareHarness::try_parse_from(argv).expect("args parse").args
+    }
 
     fn stats_text(text: &str) -> ChainStats {
         stats::analyze(&mut StreamingReader::new(Cursor::new(text.as_bytes())))
@@ -912,5 +933,29 @@ mod tests {
         assert_eq!(coverage.target_multi_bp, 10);
         assert_eq!(coverage.query_covered_bp, 20);
         assert_eq!(coverage.query_multi_bp, 10);
+    }
+
+    #[test]
+    fn memory_budget_respects_ceiling() {
+        // estimate = (a_blocks + b_blocks) * 32 bytes * 2 files = 64 bytes/block.
+        // The 16 GiB default admits exactly 2^28 blocks and rejects one more;
+        // a raised ceiling admits the overflow case.
+        assert!(check_memory_budget(268_435_456, 0, 16).is_ok());
+        assert!(check_memory_budget(268_435_457, 0, 16).is_err());
+        assert!(check_memory_budget(268_435_457, 0, 17).is_ok());
+    }
+
+    #[test]
+    fn parses_memory_ceiling_flag() {
+        let args = parse_compare_args(&[
+            "compare", "-a", "a.chain", "-b", "b.chain", "--memory-ceiling", "32",
+        ]);
+        assert_eq!(args.memory_ceiling, 32);
+
+        let args = parse_compare_args(&["compare", "-a", "a.chain", "-b", "b.chain", "-M", "4"]);
+        assert_eq!(args.memory_ceiling, 4);
+
+        let args = parse_compare_args(&["compare", "-a", "a.chain", "-b", "b.chain"]);
+        assert_eq!(args.memory_ceiling, DEFAULT_MEMORY_CEILING_GIB);
     }
 }
