@@ -10,8 +10,8 @@
   </span>
 
   <p align="center">
-    <a href="https://img.shields.io/badge/version-0.0.2-green" target="_blank">
-      <img alt="Version Badge" src="https://img.shields.io/badge/version-0.0.2-green">
+    <a href="https://img.shields.io/badge/version-0.0.13-green" target="_blank">
+      <img alt="Version Badge" src="https://img.shields.io/badge/version-0.0.13-green">
     </a>
     <a href="https://crates.io/crates/chaintools" target="_blank">
       <img alt="Crates.io Version" src="https://img.shields.io/crates/v/chaintools">
@@ -36,7 +36,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-chaintools = { version = "0.0.2", features = ["mmap", "gzip"] }
+chaintools = { version = "0.0.13", features = ["mmap", "gzip", "parallel"] }
 ```
 
 ### Features
@@ -50,6 +50,24 @@ chaintools = { version = "0.0.2", features = ["mmap", "gzip"] }
 - **Feature-gated dependencies**: Minimal footprint by enabling only needed features
 
 ## Usage
+
+### Annotation Coverage
+
+Measure the fraction of unique annotation feature bases covered by aligned
+chain blocks:
+
+```bash
+chaintools coverage \
+  --chains hg38ToMm39.over.chain.gz \
+  --side reference \
+  --intervals gencode.v50.annotation.gtf.gz \
+  --feature cds \
+  > coverage.tsv
+```
+
+Available features are `cds`, `exon`, `intron`, and `utr`. Use the global
+`--threads` option to control parallel work. See the
+[coverage tool guide](../tools/coverage.md) for input semantics and output.
 
 ### Basic File Reading
 
@@ -264,4 +282,4 @@ Run tests with all features:
 
 ```bash
 cargo test --all-features
-`
+```
