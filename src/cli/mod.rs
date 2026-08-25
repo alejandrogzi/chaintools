@@ -5,6 +5,7 @@ pub mod anti_repeat;
 pub mod bed;
 pub mod compare;
 pub mod convert;
+pub mod coverage;
 pub mod filter;
 pub mod liftover;
 pub mod merge;
@@ -72,6 +73,8 @@ enum Command {
     Compare(compare::CompareArgs),
     #[command(about = "Convert chain files to VCF, MAF, or BAM")]
     Convert(convert::ConvertArgs),
+    #[command(about = "Measure annotation feature coverage by aligned chain blocks")]
+    Coverage(coverage::CoverageArgs),
     #[command(about = "Filter chain files")]
     Filter(filter::FilterArgs),
     #[command(about = "Map BED coordinates through a chain (reference/target -> query)")]
@@ -97,6 +100,7 @@ impl std::fmt::Display for Command {
             Command::Bed(_) => f.write_str("bed"),
             Command::Compare(_) => f.write_str("compare"),
             Command::Convert(_) => f.write_str("convert"),
+            Command::Coverage(_) => f.write_str("coverage"),
             Command::Filter(_) => f.write_str("filter"),
             Command::Liftover(_) => f.write_str("liftover"),
             Command::Merge(_) => f.write_str("merge"),
@@ -207,6 +211,7 @@ where
         Command::Bed(args) => bed::run(args, stdin, stdout, stderr),
         Command::Compare(args) => compare::run(args, stdin, stdout, stderr),
         Command::Convert(args) => convert::run(args, stdin, stdout, stderr),
+        Command::Coverage(args) => coverage::run(args, stdin, stdout, stderr),
         Command::Filter(args) => filter::run(args, stdin, stdout, stderr),
         Command::Liftover(args) => liftover::run(args, stdin, stdout, stderr),
         Command::Merge(args) => merge::run(args, stdin, stdout, stderr),

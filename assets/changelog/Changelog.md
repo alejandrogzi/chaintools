@@ -5,6 +5,29 @@ All notable changes to **chaintools** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.13] - 2026-08-25
+
+### Added
+
+- **`coverage` subcommand** — measures how much of a merged annotation feature
+  universe (`cds`, `exon`, `intron`, or `utr`) is covered by aligned chain
+  blocks on either the reference or forward-genomic query side. BED, GTF, and
+  GFF annotations are supported; output contains deterministic per-chromosome
+  rows plus a required total fraction.
+- **Compact parallel coverage engine** — stores one atomic bit per unique
+  annotation base, skips genomic gaps, parses chains in parallel, and marks
+  ranges word-wise without materializing or sorting chain-derived intervals.
+
+### Changed
+
+- The existing `gzip` feature now also enables gzip annotation input in
+  `genepred`; builds without `gzip` remain compression-free.
+- Package and documentation versions bumped to `0.0.13`.
+
+### Documentation
+
+- Added `assets/tools/coverage.md` and a coverage example to the usage guide.
+
 ## [0.0.12] - 2026-08-10
 
 ### Added
@@ -337,6 +360,7 @@ First stable release.
 - Automatic gzip (`.chain.gz`) detection and decompression (`gzip` feature).
 - Test suite, benchmark binary, CI workflows, Docker image, and rustdoc documentation.
 
+[0.0.13]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.13
 [0.0.12]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.12
 [0.0.11]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.11
 [0.0.10]: https://github.com/alejandrogzi/chaintools/releases/tag/v0.0.10

@@ -99,7 +99,7 @@ pub struct BedArgs {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum BedSide {
+pub(crate) enum BedSide {
     Reference,
     Query,
 }
