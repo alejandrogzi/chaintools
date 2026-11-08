@@ -5,6 +5,41 @@ All notable changes to **chaintools** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.14] - 2026-11-08
+
+### Fixed
+
+- **2bit loading is linear in the sequence count** — `score`, `antirepeat`
+  and `convert` preload their 2bit inputs, and the preload asked the `twobit`
+  crate for each sequence by name. `twobit` 0.2.2 finds a name by scanning its
+  whole index, so a load was quadratic in the sequence count: on a
+  2.07 M-scaffold assembly `score` spent about 7 h on one core loading, and
+  its 4 h job timed out. The loader now reads the index once and decodes the
+  records in file order through one buffered pass. Measured on real genomes
+  (0.0.13 → 0.0.14):
+
+  | input | 0.0.13 | 0.0.14 |
+  |---|---|---|
+  | load, 25 sequences (hs1) | 4.9 s | 1.5 s |
+  | load, 85,609 sequences | 29.8 s | 2.6 s |
+  | load, 216,685 sequences | 109.5 s | 2.4 s |
+  | load, 310,302 sequences | 266.9 s | 2.0 s |
+  | `antirepeat`, bundle with 177,075 query scaffolds | 1,789 s | 7.1 s |
+  | `score`, 6.5 M chains, 183-sequence query | 81 s | 39 s |
+  | `score`, 21.5 M chains, 2.07 M-scaffold query | > 4 h (timeout) | 98 s |
+
+  Loaded sequences and the `score` and `antirepeat` outputs compared are
+  byte-identical to 0.0.13.
+
+### Added
+
+- 2bit version 1 files (64-bit offsets, `faToTwoBit -long`) are read; the
+  `twobit` crate rejected them.
+
+### Changed
+
+- Package and documentation versions bumped to `0.0.14`.
+
 ## [0.0.13] - 2026-08-25
 
 ### Added

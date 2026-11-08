@@ -10,8 +10,8 @@
   </span>
 
   <p align="center">
-    <a href="https://img.shields.io/badge/version-0.0.13-green" target="_blank">
-      <img alt="Version Badge" src="https://img.shields.io/badge/version-0.0.13-green">
+    <a href="https://img.shields.io/badge/version-0.0.14-green" target="_blank">
+      <img alt="Version Badge" src="https://img.shields.io/badge/version-0.0.14-green">
     </a>
     <a href="https://crates.io/crates/chaintools" target="_blank">
       <img alt="Crates.io Version" src="https://img.shields.io/crates/v/chaintools">
@@ -36,7 +36,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-chaintools = { version = "0.0.13", features = ["mmap", "gzip", "parallel"] }
+chaintools = { version = "0.0.14", features = ["mmap", "gzip", "parallel"] }
 ```
 
 ### Features
