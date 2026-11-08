@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Cursor, Read};
+use std::io::{BufRead, BufReader, Cursor, Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -490,11 +490,10 @@ pub fn from_2bit_filtered<P: AsRef<Path>>(
     names: Option<&HashSet<Vec<u8>>>,
 ) -> Result<SequenceMap, ChainError> {
     let path = path.as_ref();
-    let genome = TwoBitFile::open(path)
-        .map_err(|err| sequence_error(format!("cannot open 2bit {}: {err}", path.display())))?
-        .enable_softmask(true);
+    let file = File::open(path)
+        .map_err(|err| sequence_error(format!("cannot open 2bit {}: {err}", path.display())))?;
     let source = format!("file {}", path.display());
-    collect_2bit_sequences(genome, &source, names)
+    read_2bit(file, &source, names)
 }
 
 /// Parses 2bit format from a buffer.
@@ -510,43 +509,250 @@ pub fn from_2bit_filtered<P: AsRef<Path>>(
 ///
 /// Returns `Ok(SequenceMap)` or `Err(ChainError)` on failure
 fn from_2bit_buf(buf: Vec<u8>, source: &str) -> Result<SequenceMap, ChainError> {
-    let genome = TwoBitFile::from_buf(buf)
-        .map_err(|err| sequence_error(format!("cannot read 2bit from {source}: {err}")))?
-        .enable_softmask(true);
-    collect_2bit_sequences(genome, source, None)
+    read_2bit(Cursor::new(buf), source, None)
 }
 
-/// Collects all sequences from a 2bit file.
+/// 2bit signature (kent `twoBitSig`) as read in the file's own byte order.
+const TWOBIT_SIGNATURE: u32 = 0x1A41_2743;
+
+/// Read buffer for 2bit loading: large enough that walking the records of a
+/// fragmented assembly in file order stays one sequential read.
+const TWOBIT_READ_BUFFER: usize = 1 << 20;
+
+/// Packed-DNA bytes decoded per read while loading one sequence.
+const TWOBIT_DNA_CHUNK: usize = 1 << 16;
+
+/// Four bases per packed byte, most significant pair first (T=0, C=1, A=2, G=3).
+const TWOBIT_QUADS: [[u8; 4]; 256] = twobit_quads();
+
+const fn twobit_quads() -> [[u8; 4]; 256] {
+    const NUC: &[u8; 4] = b"TCAG";
+    let mut table = [[0_u8; 4]; 256];
+    let mut byte = 0;
+    while byte < 256 {
+        table[byte] = [
+            NUC[(byte >> 6) & 3],
+            NUC[(byte >> 4) & 3],
+            NUC[(byte >> 2) & 3],
+            NUC[byte & 3],
+        ];
+        byte += 1;
+    }
+    table
+}
+
+/// Loads every sequence of a 2bit file, or only the named ones, in one pass.
 ///
-/// Iterates over all chromosomes in the 2bit file and loads their sequences.
+/// The index is read once into a name -> offset map, and the selected records
+/// are then decoded in file-offset order, so a load costs one sequential read
+/// of the file however many sequences it holds. The `twobit` crate looks a
+/// sequence up by scanning its whole index, which made a full load quadratic
+/// in the sequence count: about 7 h for a 2.07 M-scaffold assembly.
+///
+/// Output matches the `twobit` crate with soft-masking enabled: uppercase
+/// bases, `N` over hard-masked blocks, lowercase over soft-masked blocks, and
+/// the first index entry wins when a name repeats. Both byte orders and
+/// version 1 files (64-bit offsets, as written by `faToTwoBit -long`) are read.
 ///
 /// # Arguments
 ///
-/// * `genome` - TwoBitFile handle
+/// * `reader` - The 2bit file or buffer
 /// * `source` - Source identifier for error messages
+/// * `names` - Sequence names to load, or `None` for all
 ///
 /// # Output
 ///
-/// Returns `Ok(SequenceMap)` with all sequences
-fn collect_2bit_sequences<R: Read + std::io::Seek>(
-    mut genome: TwoBitFile<R>,
+/// Returns `Ok(SequenceMap)` with the selected sequences, or `Err(ChainError)`
+fn read_2bit<R: Read + Seek>(
+    reader: R,
     source: &str,
     names: Option<&HashSet<Vec<u8>>>,
 ) -> Result<SequenceMap, ChainError> {
-    let mut sequences = HashMap::new();
-    for chr in genome.chrom_names() {
+    let mut input = TwoBitInput::new(reader);
+    let context = |err: std::io::Error| sequence_error(format!("cannot read 2bit {source}: {err}"));
+
+    let signature = input.bytes4().map_err(context)?;
+    input.big_endian = if u32::from_le_bytes(signature) == TWOBIT_SIGNATURE {
+        false
+    } else if u32::from_be_bytes(signature) == TWOBIT_SIGNATURE {
+        true
+    } else {
+        return Err(sequence_error(format!(
+            "{source} does not start with a 2bit signature"
+        )));
+    };
+    let version = input.u32().map_err(context)?;
+    if version > 1 {
+        return Err(sequence_error(format!(
+            "unsupported 2bit version {version} in {source}"
+        )));
+    }
+    let count = input.u32().map_err(context)?;
+    let _reserved = input.u32().map_err(context)?;
+
+    // Index: name -> data offset, first entry wins (as `twobit` lookups do).
+    let mut offsets: HashMap<Vec<u8>, u64> = HashMap::new();
+    for _ in 0..count {
+        let name_len = usize::from(input.byte().map_err(context)?);
+        let mut name = vec![0_u8; name_len];
+        input.read_exact(&mut name).map_err(context)?;
+        let offset = if version == 1 {
+            input.u64().map_err(context)?
+        } else {
+            u64::from(input.u32().map_err(context)?)
+        };
+        if std::str::from_utf8(&name).is_err() {
+            return Err(sequence_error(format!(
+                "2bit sequence name is not UTF-8 in {source}"
+            )));
+        }
         // Skip sequences the caller did not ask for. A requested name that is
         // absent from the file is simply never loaded and surfaces as
         // MissingSequence at fetch time, matching the load-everything behavior.
-        if names.is_some_and(|filter| !filter.contains(chr.as_bytes())) {
+        if names.is_some_and(|filter| !filter.contains(&name)) {
             continue;
         }
-        let seq = genome
-            .read_sequence(&chr, ..)
-            .map_err(|err| sequence_error(format!("cannot read {chr} from {source}: {err}")))?;
-        sequences.insert(chr.into_bytes(), seq.into_bytes());
+        offsets.entry(name).or_insert(offset);
+    }
+
+    let mut records: Vec<(Vec<u8>, u64)> = offsets.into_iter().collect();
+    records.sort_unstable_by_key(|&(_, offset)| offset);
+    let mut sequences = HashMap::with_capacity(records.len());
+    for (name, offset) in records {
+        let sequence = input.sequence(offset).map_err(|err| {
+            sequence_error(format!(
+                "cannot read {} from 2bit {source}: {err}",
+                String::from_utf8_lossy(&name)
+            ))
+        })?;
+        sequences.insert(name, sequence);
     }
     Ok(sequences)
+}
+
+/// Buffered 2bit reader that tracks its position, so moving to the next record
+/// keeps the read buffer whenever the record is already in it.
+struct TwoBitInput<R: Read + Seek> {
+    reader: BufReader<R>,
+    position: u64,
+    big_endian: bool,
+    dna: Vec<u8>,
+}
+
+impl<R: Read + Seek> TwoBitInput<R> {
+    fn new(reader: R) -> Self {
+        Self {
+            reader: BufReader::with_capacity(TWOBIT_READ_BUFFER, reader),
+            position: 0,
+            big_endian: false,
+            dna: Vec::new(),
+        }
+    }
+
+    fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()> {
+        self.reader.read_exact(buf)?;
+        self.position += buf.len() as u64;
+        Ok(())
+    }
+
+    fn byte(&mut self) -> std::io::Result<u8> {
+        let mut buf = [0_u8; 1];
+        self.read_exact(&mut buf)?;
+        Ok(buf[0])
+    }
+
+    fn bytes4(&mut self) -> std::io::Result<[u8; 4]> {
+        let mut buf = [0_u8; 4];
+        self.read_exact(&mut buf)?;
+        Ok(buf)
+    }
+
+    fn u32(&mut self) -> std::io::Result<u32> {
+        let buf = self.bytes4()?;
+        Ok(if self.big_endian {
+            u32::from_be_bytes(buf)
+        } else {
+            u32::from_le_bytes(buf)
+        })
+    }
+
+    fn u64(&mut self) -> std::io::Result<u64> {
+        let mut buf = [0_u8; 8];
+        self.read_exact(&mut buf)?;
+        Ok(if self.big_endian {
+            u64::from_be_bytes(buf)
+        } else {
+            u64::from_le_bytes(buf)
+        })
+    }
+
+    fn seek_to(&mut self, offset: u64) -> std::io::Result<()> {
+        if offset != self.position {
+            let delta = i64::try_from(offset).map_err(std::io::Error::other)?
+                - i64::try_from(self.position).map_err(std::io::Error::other)?;
+            self.reader.seek_relative(delta)?;
+            self.position = offset;
+        }
+        Ok(())
+    }
+
+    /// `(start, end)` blocks: a count, then that many starts, then the sizes.
+    fn blocks(&mut self) -> std::io::Result<Vec<(usize, usize)>> {
+        let count = self.u32()? as usize;
+        // Capped: a corrupt count then fails at end of file, not in the allocator.
+        let mut starts = Vec::with_capacity(count.min(1 << 16));
+        for _ in 0..count {
+            starts.push(self.u32()? as usize);
+        }
+        let mut blocks = Vec::with_capacity(starts.len());
+        for start in starts {
+            blocks.push((start, start + self.u32()? as usize));
+        }
+        Ok(blocks)
+    }
+
+    /// Decodes the record at `offset`: size, N blocks, mask blocks, a reserved
+    /// word, then the packed bases.
+    fn sequence(&mut self, offset: u64) -> std::io::Result<Vec<u8>> {
+        self.seek_to(offset)?;
+        let size = self.u32()? as usize;
+        let n_blocks = self.blocks()?;
+        let mask_blocks = self.blocks()?;
+        let _reserved = self.u32()?;
+
+        let mut sequence = Vec::with_capacity(size + 3);
+        let mut packed = size.div_ceil(4);
+        let mut dna = std::mem::take(&mut self.dna);
+        dna.resize(packed.min(TWOBIT_DNA_CHUNK), 0);
+        while packed > 0 {
+            let chunk = packed.min(TWOBIT_DNA_CHUNK);
+            self.read_exact(&mut dna[..chunk])?;
+            for &byte in &dna[..chunk] {
+                sequence.extend_from_slice(&TWOBIT_QUADS[usize::from(byte)]);
+            }
+            packed -= chunk;
+        }
+        self.dna = dna;
+        sequence.truncate(size);
+
+        apply_2bit_blocks(&mut sequence, &n_blocks, |_| b'N');
+        apply_2bit_blocks(&mut sequence, &mask_blocks, |base| {
+            base.to_ascii_lowercase()
+        });
+        Ok(sequence)
+    }
+}
+
+/// Applies `mask` over each block clipped to the sequence. Like the `twobit`
+/// crate, which expects sorted blocks, the walk stops at the first block that
+/// starts at or past the end of the sequence.
+fn apply_2bit_blocks(sequence: &mut [u8], blocks: &[(usize, usize)], mask: impl Fn(u8) -> u8) {
+    let len = sequence.len();
+    for &(start, end) in blocks.iter().take_while(|&&(start, _)| start < len) {
+        for base in &mut sequence[start..end.min(len)] {
+            *base = mask(*base);
+        }
+    }
 }
 
 /// Loads sequences from a FASTA file.
@@ -828,5 +1034,347 @@ mod tests {
         assert_eq!(resolver.sequence_len(b"chr1").unwrap(), 6);
 
         std::fs::remove_file(path).expect("remove FASTA");
+    }
+
+    /// The previous loader: the `twobit` crate with soft-masking, one name
+    /// lookup per sequence. The new loader must reproduce it exactly.
+    fn legacy_2bit_sequences<R: Read + Seek>(
+        mut genome: TwoBitFile<R>,
+        names: Option<&HashSet<Vec<u8>>>,
+    ) -> SequenceMap {
+        let mut sequences = HashMap::new();
+        for chr in genome.chrom_names() {
+            if names.is_some_and(|filter| !filter.contains(chr.as_bytes())) {
+                continue;
+            }
+            let seq = genome
+                .read_sequence(&chr, ..)
+                .expect("twobit crate reads the sequence");
+            sequences.insert(chr.into_bytes(), seq.into_bytes());
+        }
+        sequences
+    }
+
+    fn legacy_2bit_buf(buf: &[u8], names: Option<&HashSet<Vec<u8>>>) -> SequenceMap {
+        let genome = TwoBitFile::from_buf(buf.to_vec())
+            .expect("twobit crate opens the 2bit")
+            .enable_softmask(true);
+        legacy_2bit_sequences(genome, names)
+    }
+
+    fn load_buf(buf: &[u8], names: Option<&HashSet<Vec<u8>>>) -> SequenceMap {
+        read_2bit(Cursor::new(buf.to_vec()), "test", names).expect("load 2bit")
+    }
+
+    /// One 2bit record: bases to pack (N and anything else pack as T, as in
+    /// kent) and raw `(start, size)` N and soft-mask blocks.
+    struct Record {
+        name: String,
+        bases: Vec<u8>,
+        n_blocks: Vec<(u32, u32)>,
+        mask_blocks: Vec<(u32, u32)>,
+    }
+
+    /// Runs of `pred` in `text` as `(start, size)` blocks.
+    fn runs(text: &[u8], pred: impl Fn(u8) -> bool) -> Vec<(u32, u32)> {
+        let mut blocks = Vec::new();
+        let mut i = 0;
+        while i < text.len() {
+            if pred(text[i]) {
+                let start = i;
+                while i < text.len() && pred(text[i]) {
+                    i += 1;
+                }
+                blocks.push((start as u32, (i - start) as u32));
+            } else {
+                i += 1;
+            }
+        }
+        blocks
+    }
+
+    /// A record whose decoded sequence is `text` itself (N/n hard-masked,
+    /// lowercase soft-masked), as `faToTwoBit` would write it.
+    fn masked(name: &str, text: &str) -> Record {
+        let text = text.as_bytes();
+        Record {
+            name: name.to_owned(),
+            bases: text.to_vec(),
+            n_blocks: runs(text, |b| b.eq_ignore_ascii_case(&b'N')),
+            mask_blocks: runs(text, |b| b.is_ascii_lowercase()),
+        }
+    }
+
+    /// Writes a 2bit: header, index, then the records in `data_order`.
+    fn encode_2bit(
+        records: &[Record],
+        big_endian: bool,
+        version: u32,
+        data_order: &[usize],
+    ) -> Vec<u8> {
+        let word = |out: &mut Vec<u8>, v: u32| {
+            out.extend_from_slice(&if big_endian {
+                v.to_be_bytes()
+            } else {
+                v.to_le_bytes()
+            })
+        };
+        let mut data = vec![Vec::new(); records.len()];
+        for (rec, out) in records.iter().zip(&mut data) {
+            word(out, rec.bases.len() as u32);
+            for blocks in [&rec.n_blocks, &rec.mask_blocks] {
+                word(out, blocks.len() as u32);
+                for &(start, _) in blocks.iter() {
+                    word(out, start);
+                }
+                for &(_, size) in blocks.iter() {
+                    word(out, size);
+                }
+            }
+            word(out, 0);
+            for quad in rec.bases.chunks(4) {
+                let mut byte = 0_u8;
+                for i in 0..4 {
+                    let code = match quad.get(i).map(u8::to_ascii_uppercase) {
+                        Some(b'C') => 1,
+                        Some(b'A') => 2,
+                        Some(b'G') => 3,
+                        _ => 0,
+                    };
+                    byte = (byte << 2) | code;
+                }
+                out.push(byte);
+            }
+        }
+        let offset_size = if version == 1 { 8 } else { 4 };
+        let index_len: usize = records
+            .iter()
+            .map(|rec| 1 + rec.name.len() + offset_size)
+            .sum();
+        let mut offsets = vec![0_u64; records.len()];
+        let mut next = (16 + index_len) as u64;
+        for &i in data_order {
+            offsets[i] = next;
+            next += data[i].len() as u64;
+        }
+
+        let mut out = Vec::new();
+        word(&mut out, TWOBIT_SIGNATURE);
+        word(&mut out, version);
+        word(&mut out, records.len() as u32);
+        word(&mut out, 0);
+        for (rec, &offset) in records.iter().zip(&offsets) {
+            out.push(rec.name.len() as u8);
+            out.extend_from_slice(rec.name.as_bytes());
+            if version == 1 {
+                out.extend_from_slice(&if big_endian {
+                    offset.to_be_bytes()
+                } else {
+                    offset.to_le_bytes()
+                });
+            } else {
+                word(&mut out, offset as u32);
+            }
+        }
+        for &i in data_order {
+            out.extend_from_slice(&data[i]);
+        }
+        out
+    }
+
+    fn in_order(records: &[Record]) -> Vec<usize> {
+        (0..records.len()).collect()
+    }
+
+    /// xorshift64*: deterministic test data without a dependency.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n as u64) as usize
+        }
+    }
+
+    /// Random records: lengths 0..400 (short ones often), runs of N and of
+    /// lowercase, plus raw blocks that overlap, run past the end, sit empty at
+    /// position 0, or come unsorted; repeated names and shuffled data order.
+    fn random_genome(rng: &mut Rng) -> (Vec<Record>, Vec<usize>) {
+        let count = 1 + rng.below(60);
+        let mut records = Vec::with_capacity(count);
+        for i in 0..count {
+            let len = if rng.below(4) == 0 {
+                rng.below(6)
+            } else {
+                rng.below(400)
+            };
+            let mut text = Vec::with_capacity(len);
+            while text.len() < len {
+                let run = 1 + rng.below(30);
+                let kind = rng.below(10);
+                for _ in 0..run.min(len - text.len()) {
+                    let base = b"ACGT"[rng.below(4)];
+                    text.push(match kind {
+                        0 => b'N',
+                        1 => b'n',
+                        2..=4 => base.to_ascii_lowercase(),
+                        _ => base,
+                    });
+                }
+            }
+            let name = if i > 0 && rng.below(15) == 0 {
+                records
+                    .get(rng.below(i))
+                    .map_or_else(|| format!("seq{i}"), |r: &Record| r.name.clone())
+            } else {
+                format!("scaffold_{i}_{}", rng.below(1000))
+            };
+            let mut rec = masked(&name, std::str::from_utf8(&text).unwrap());
+            if rng.below(3) == 0 {
+                let extra = (rng.below(len + 10) as u32, rng.below(20) as u32);
+                rec.n_blocks.push(extra);
+                rec.mask_blocks
+                    .push((rng.below(len + 10) as u32, rng.below(50) as u32));
+                if rng.below(2) == 0 {
+                    rec.n_blocks.insert(0, (0, 0));
+                }
+                if rng.below(2) == 0 {
+                    rec.mask_blocks
+                        .sort_unstable_by_key(|b| std::cmp::Reverse(b.0));
+                }
+            }
+            records.push(rec);
+        }
+        let mut order = in_order(&records);
+        for i in (1..order.len()).rev() {
+            order.swap(i, rng.below(i + 1));
+        }
+        (records, order)
+    }
+
+    #[test]
+    fn twobit_loader_matches_twobit_crate_on_random_genomes() {
+        let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+        for _ in 0..200 {
+            let (records, order) = random_genome(&mut rng);
+            let buf = encode_2bit(&records, false, 0, &order);
+            assert_eq!(load_buf(&buf, None), legacy_2bit_buf(&buf, None));
+
+            let mut subset: HashSet<Vec<u8>> = records
+                .iter()
+                .filter(|_| rng.below(3) == 0)
+                .map(|r| r.name.as_bytes().to_vec())
+                .collect();
+            subset.insert(b"not_in_file".to_vec());
+            assert_eq!(
+                load_buf(&buf, Some(&subset)),
+                legacy_2bit_buf(&buf, Some(&subset))
+            );
+        }
+    }
+
+    #[test]
+    fn twobit_loader_decodes_masks_and_short_records() {
+        let records = vec![
+            masked("chr1", "ACGTacgtNNnnACG"),
+            masked("empty", ""),
+            masked("one", "g"),
+            masked("allN", "NNNNNNN"),
+        ];
+        let buf = encode_2bit(&records, false, 0, &[2, 0, 3, 1]);
+        let loaded = load_buf(&buf, None);
+        assert_eq!(loaded.len(), 4);
+        assert_eq!(loaded[b"chr1".as_slice()], b"ACGTacgtNNnnACG");
+        assert_eq!(loaded[b"empty".as_slice()], b"");
+        assert_eq!(loaded[b"one".as_slice()], b"g");
+        assert_eq!(loaded[b"allN".as_slice()], b"NNNNNNN");
+        assert_eq!(loaded, legacy_2bit_buf(&buf, None));
+    }
+
+    #[test]
+    fn twobit_loader_reads_both_byte_orders_and_version_1() {
+        let mut rng = Rng(42);
+        for _ in 0..20 {
+            let (records, order) = random_genome(&mut rng);
+            let expected = legacy_2bit_buf(&encode_2bit(&records, false, 0, &order), None);
+            let big = encode_2bit(&records, true, 0, &order);
+            assert_eq!(legacy_2bit_buf(&big, None), expected);
+            assert_eq!(load_buf(&big, None), expected);
+            for big_endian in [false, true] {
+                let long = encode_2bit(&records, big_endian, 1, &order);
+                assert_eq!(load_buf(&long, None), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn twobit_loader_rejects_malformed_files() {
+        let records = vec![masked("chr1", "ACGTACGTACGT"), masked("chr2", "ACGT")];
+        let good = encode_2bit(&records, false, 0, &in_order(&records));
+
+        let mut bad_signature = good.clone();
+        bad_signature[0] ^= 0xFF;
+        assert!(read_2bit(Cursor::new(bad_signature), "test", None).is_err());
+
+        let mut version_2 = good.clone();
+        version_2[4..8].copy_from_slice(&2_u32.to_le_bytes());
+        assert!(read_2bit(Cursor::new(version_2), "test", None).is_err());
+
+        for cut in [3, 10, 20, good.len() - 1] {
+            assert!(read_2bit(Cursor::new(good[..cut].to_vec()), "test", None).is_err());
+        }
+    }
+
+    #[test]
+    fn from_2bit_filtered_reads_a_file() {
+        let records = vec![masked("chrA", "ACGTNNacgt"), masked("chrB", "TTTTcccc")];
+        let buf = encode_2bit(&records, false, 0, &in_order(&records));
+        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "chaintools-sequence-test-{}-{id}.2bit",
+            std::process::id()
+        ));
+        std::fs::write(&path, &buf).expect("write 2bit");
+
+        let only_b: HashSet<Vec<u8>> = [b"chrB".to_vec()].into_iter().collect();
+        let loaded = from_2bit_filtered(&path, Some(&only_b)).expect("load 2bit");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[b"chrB".as_slice()], b"TTTTcccc");
+        assert_eq!(from_2bit(&path).expect("load 2bit"), load_buf(&buf, None));
+
+        std::fs::remove_file(path).expect("remove 2bit");
+    }
+
+    /// Real-genome check against the previous loader:
+    /// `CHAINTOOLS_2BIT_ORACLE=a.2bit:b.2bit cargo test --release -- --ignored twobit_oracle`.
+    /// The previous loader is quadratic in the sequence count, so pick files
+    /// with up to a few hundred thousand sequences.
+    #[test]
+    #[ignore = "needs CHAINTOOLS_2BIT_ORACLE"]
+    fn twobit_oracle_real_files() {
+        let paths = std::env::var("CHAINTOOLS_2BIT_ORACLE").expect("set CHAINTOOLS_2BIT_ORACLE");
+        for path in paths.split(':').filter(|p| !p.is_empty()) {
+            let started = std::time::Instant::now();
+            let loaded = from_2bit(path).expect("load 2bit");
+            let new_time = started.elapsed();
+            let started = std::time::Instant::now();
+            let genome = TwoBitFile::open(path)
+                .expect("twobit crate opens the 2bit")
+                .enable_softmask(true);
+            let legacy = legacy_2bit_sequences(genome, None);
+            let legacy_time = started.elapsed();
+            let bases: usize = loaded.values().map(Vec::len).sum();
+            eprintln!(
+                "{path}: {} sequences, {bases} bp; new {new_time:.2?}, twobit crate {legacy_time:.2?}",
+                loaded.len()
+            );
+            assert_eq!(loaded, legacy, "{path}");
+        }
     }
 }
